@@ -75,6 +75,20 @@ plot_teststatistic(Standard_Normal_3D_Uncorrelated, marginal_mean(), sampler, nb
 ```
 <img src="docs/images/Normal-3D-Uncorrelated-SlicedWasserstein.svg" width="480"/>
 
+### Runnable examples
+
+Two self-contained examples are included in the repository:
+
+```bash
+julia --project=. examples/basic_metrics.jl
+julia --project=. examples/end_to_end_benchmark.jl
+```
+
+`basic_metrics.jl` demonstrates in-memory metric calculations. The end-to-end
+example builds and reloads test-statistic files and writes both individual and
+overview plots to `examples/output/`. Its defaults are intentionally small so
+that it can also serve as a smoke test while developing MCBench.
+
 ## List of test cases
 The following table contains all test cases currently available in the benchmark suite.
 When implementing one of these into the MC sampling framework of your choice, you can use the given testpoints to validate your implementation.  

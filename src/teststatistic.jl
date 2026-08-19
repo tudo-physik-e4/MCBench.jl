@@ -87,7 +87,10 @@ function build_teststatistic(t::T, m::Vector{TM}; s=IIDSampler(), n::Int=10^2, n
     fs = [open(f, "a+") for f in fnm]
     try
         build_teststat_reshuffle(t, n, m, fs, s=s, n_steps=n_steps, n_samples=n_samples, unweight=unweight, par=par, use_sampler=use_sampler)
-    catch
+    finally
+        # `build_teststat_reshuffle` closes the streams after a successful run.
+        # Closing an already closed stream is harmless, and the `finally` block
+        # also guarantees cleanup without hiding exceptions from callers.
         close.(fs)
     end
 end
@@ -136,34 +139,30 @@ build_teststat_reshuffle(testcase, 100, metrics, file_streams; n_steps=10^4, unw
 """
 function build_teststat_reshuffle(t::T, n::Int, m::Vector{TM}, fnm::Vector{IOStream}; 
     s=IIDSampler(), n_steps=10^5, n_samples=0, unweight=true, par=false, use_sampler=true) where {TM <: TestMetric, T<:AbstractTestcase}
-    v = 0
+    draw_samples() = use_sampler ? sample(t, s) : sample(t, s, n_steps=n_steps)
+    prepare_samples(v) = if unweight && v.weight != ones(length(v))
+        resample_dsv_to_ess(v, s)
+    else
+        v
+    end
+
     j = 0
     while j < n
-        v = use_sampler ? sample(t, s) : sample(t, s, n_steps=n_steps)
-        if unweight && v.weight != ones(length(v))
-            dsv_unw = v
-            dsv_unw = resample_dsv_to_ess(dsv_unw, s)
-            v = dsv_unw
-        end
+        v = prepare_samples(draw_samples())
         if n_samples <= 0
             for i in 1:length(m)
                 write(fnm[i], string([j.val for j in run_teststatistic(t, v, m[i], s)], "\n"))
             end
-            a = j % (Int(floor((n_steps/100)))) == 0 ? println(j) : nothing
+            progress_every = max(1, fld(n_steps, 100))
+            j % progress_every == 0 && println(j)
             j += 1
             continue
         end
         if n_samples > 0
             nv = v
-            rv = 0
-            while length(nv) >= 0 && !isempty(rv) && j < n
+            while j < n
                 while length(nv) < n_samples
-                    rv = use_sampler ? sample(t, s) : sample(t, s, n_steps=n_steps)
-                    if unweight && rv.weight != ones(length(v))
-                        dsv_unw = rv
-                        dsv_unw = resample_dsv_to_ess(dsv_unw, s)
-                        rv = dsv_unw
-                    end
+                    rv = prepare_samples(draw_samples())
                     nv = vcat(nv, rv)
                 end
                 while length(nv) >= n_samples && j < n
@@ -175,8 +174,9 @@ function build_teststat_reshuffle(t::T, n::Int, m::Vector{TM}, fnm::Vector{IOStr
                             write(fnm[i], string([j.val for j in run_teststatistic(t, nvcalc, m[i], s)], "\n"))
                         end
                     end
-                    nv = length(nv) > n_samples ? nv[n_samples+1:end] : sample(t, s, n_steps=n_steps)
-                    a = j % (Int(floor((n_steps/100)))) == 0 ? println(j) : nothing
+                    nv = length(nv) > n_samples ? nv[n_samples+1:end] : nv[1:0]
+                    progress_every = max(1, fld(n_steps, 100))
+                    j % progress_every == 0 && println(j)
                     j += 1
                 end
             end
