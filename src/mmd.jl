@@ -96,11 +96,19 @@ function get_mmd(x::AbstractMatrix, y::AbstractMatrix; g::Real=0)
     size(x, 1) == size(y, 1) || throw(DimensionMismatch(
         "MMD inputs must have the same number of dimensions",
     ))
-    gamma = iszero(g) ? compute_bandwidth(x, y) : g
+    gamma = if iszero(g)
+        scale_squared = compute_bandwidth(x, y)
+        isfinite(scale_squared) && scale_squared > 0 || throw(ArgumentError(
+            "automatic MMD bandwidth requires a positive finite median squared distance",
+        ))
+        inv(2 * scale_squared)
+    else
+        g
+    end
     mmd(GaussianKernel(gamma), x, y)
 end
 
-"""Median pairwise squared distance used as the Gaussian-kernel scale."""
+"""Median pairwise squared distance used for automatic Gaussian-kernel scaling."""
 function compute_bandwidth(x::AbstractMatrix, y::AbstractMatrix)
     size(x, 1) == size(y, 1) || throw(DimensionMismatch(
         "bandwidth inputs must have the same number of dimensions",

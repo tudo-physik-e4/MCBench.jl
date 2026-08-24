@@ -59,6 +59,109 @@ end
 export marginal_variance
 
 
+const _DEFAULT_QUANTILE_PROBABILITIES = (0.5, 0.9, 0.99)
+
+function _validate_quantile_probabilities(probabilities)
+    values = Tuple(Float64.(probabilities))
+    isempty(values) && throw(ArgumentError("at least one quantile is required"))
+    all(value -> isfinite(value) && 0 <= value <= 1, values) || throw(ArgumentError(
+        "quantile probabilities must be finite values between zero and one",
+    ))
+    length(unique(values)) == length(values) || throw(ArgumentError(
+        "quantile probabilities must be unique",
+    ))
+    values
+end
+
+function _quantile_percentage(probability)
+    percentage = 100 * probability
+    isinteger(percentage) ? string(Int(percentage)) : string(round(percentage; sigdigits=8))
+end
+
+function _quantile_info(probabilities)
+    prefix = length(probabilities) == 1 ? "Quantile" : "Quantiles"
+    percentages = join(_quantile_percentage.(probabilities), "-")
+    "$prefix-$percentages"
+end
+
+"""
+    marginal_quantiles()
+    marginal_quantiles(probabilities)
+    marginal_quantiles(; percent=nothing, percentages=nothing)
+
+Weighted marginal sample quantiles for every testcase dimension. With no
+arguments, calculate the 50%, 90%, and 99% quantiles. Positional values use
+probabilities between zero and one:
+
+```julia
+marginal_quantiles(0.95)
+marginal_quantiles([0.25, 0.5, 0.75])
+```
+
+For percentage notation, use `percent=95` or `percentages=[25, 50, 75]`.
+Results are ordered by quantile and then by testcase dimension.
+"""
+struct marginal_quantiles{V<:Real,P<:Tuple,A} <: TestMetric
+    val::V
+    probabilities::P
+    info::A
+end
+
+function marginal_quantiles(probabilities::Union{Real,Tuple,AbstractVector})
+    values = probabilities isa Real ? (probabilities,) : probabilities
+    validated = _validate_quantile_probabilities(values)
+    marginal_quantiles(0.0, validated, _quantile_info(validated))
+end
+
+function marginal_quantiles(; percent=nothing, percentages=nothing)
+    !isnothing(percent) && !isnothing(percentages) && throw(ArgumentError(
+        "provide either percent or percentages, not both",
+    ))
+
+    if isnothing(percent) && isnothing(percentages)
+        return marginal_quantiles(_DEFAULT_QUANTILE_PROBABILITIES)
+    end
+
+    selected = isnothing(percentages) ? percent : percentages
+    values = selected isa Real ? (selected,) : selected
+    all(value -> value isa Real && isfinite(value) && 0 <= value <= 100, values) ||
+        throw(ArgumentError("quantile percentages must lie between zero and 100"))
+    marginal_quantiles(Float64.(collect(values)) ./ 100)
+end
+
+"""Convenience constructor for a single marginal quantile."""
+function marginal_quantile(
+    probability::Union{Nothing,Real}=nothing;
+    percent::Union{Nothing,Real}=nothing,
+)
+    !isnothing(probability) && !isnothing(percent) && throw(ArgumentError(
+        "provide either a probability or percent, not both",
+    ))
+    !isnothing(percent) && return marginal_quantiles(percent=percent)
+    marginal_quantiles(isnothing(probability) ? 0.5 : probability)
+end
+
+function calc_metric(
+    ::AbstractTestcase,
+    samples::DensitySampleVector,
+    metric::marginal_quantiles,
+)
+    values = _sample_value_matrix(samples)
+    weights = FrequencyWeights(samples.weight)
+    [
+        marginal_quantiles(
+            quantile(row, weights, probability),
+            metric.probabilities,
+            metric.info,
+        )
+        for probability in metric.probabilities
+        for row in eachrow(values)
+    ]
+end
+
+export marginal_quantile, marginal_quantiles
+
+
 """Coordinates of the highest-density sampled point."""
 struct global_mode{V<:Real,A} <: TestMetric
     val::V

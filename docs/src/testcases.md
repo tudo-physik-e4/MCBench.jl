@@ -22,7 +22,9 @@ testcase = Testcases(
 ```
 
 Keys match metric type names. Scalar entries are broadcast across all output
-dimensions, while vectors are checked against the metric output dimension.
+dimensions, while vectors are checked against the metric output dimension. A
+configurable metric may use a function entry that receives the metric and
+returns the matching values.
 `reference_values(testcase, marginal_mean())` returns the normalized vector or
 `nothing` when that reference is not defined.
 
@@ -41,6 +43,8 @@ The following metrics are available to compare custom generated MC samples to II
 ## One-sample metrics
 - Marginal mean: `marginal_mean()`
 - Marginal variance: `marginal_variance()`
+- Marginal quantiles: `marginal_quantiles()` for 50%, 90%, and 99% by default;
+  for example, use `marginal_quantiles(percent=95)` for the 95% quantile.
 - Global mode: `global_mode()`
 - Marginal mode: `marginal_mode()`
 - Marginal skewness: `marginal_skewness()`

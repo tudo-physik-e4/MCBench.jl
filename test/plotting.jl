@@ -10,9 +10,13 @@
                 bounds,
                 1,
                 "Plot-Test";
-                reference_values=(marginal_mean=0.05,),
+                reference_values=(
+                    marginal_mean=0.05,
+                    marginal_quantiles=metric -> collect(metric.probabilities),
+                ),
             )
             metric = MCBench.marginal_mean()
+            quantile_metric = MCBench.marginal_quantiles()
             source = MCBench.make_dsv(collect(-2.0:2.0))
             sampler = MCBench.DsvSampler([source]; info="Compared")
 
@@ -23,6 +27,17 @@
             write_lines(
                 joinpath("teststatistics_sampler", "Plot-Test-Mean-Compared.txt"),
                 ["[-0.1]", "[0.0]", "[0.1]", "[0.2]", "[0.3]"],
+            )
+            write_lines(
+                joinpath("teststatistics", "Plot-Test-Quantiles-50-90-99.txt"),
+                ["[0.0, 0.9, 0.99]", "[0.1, 1.0, 1.1]", "[-0.1, 0.8, 0.9]"],
+            )
+            write_lines(
+                joinpath(
+                    "teststatistics_sampler",
+                    "Plot-Test-Quantiles-50-90-99-Compared.txt",
+                ),
+                ["[0.1, 1.0, 1.1]", "[0.2, 1.1, 1.2]", "[0.0, 0.9, 1.0]"],
             )
 
             iid_paths = MCBench.plot_teststatistic(testcase, metric)
@@ -85,6 +100,24 @@
             )
             @test !isfile(metrics_pdf)
             @test !isfile(metrics_png)
+
+            quantile_overview = MCBench.plot_metrics(
+                testcase,
+                [quantile_metric],
+                sampler;
+                names=["x"],
+                save_plots=false,
+            )
+            @test quantile_overview isa MCBench.Plots.Plot
+
+            quantile_reference_overview = MCBench.plot_reference_metrics(
+                testcase,
+                [quantile_metric],
+                sampler;
+                names=["x"],
+                save_plots=false,
+            )
+            @test quantile_reference_overview isa MCBench.Plots.Plot
 
             # Metrics without a stored reference are silently omitted.
             reference_paths = MCBench.plot_reference_metrics(

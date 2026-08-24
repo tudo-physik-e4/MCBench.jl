@@ -74,6 +74,26 @@ When `n_samples` is positive, MCBench collects sampler draws until it can form
 a batch of exactly that size. Remaining samples are kept for the next
 repetition. Set `n_samples <= 0` to evaluate one complete draw per repetition.
 
+## Generating text summaries
+
+Use the text summary to inspect the numbers behind the overview plots:
+
+```julia
+print_metric_summary(Standard_Normal_3D_Uncorrelated, metrics, sampler)
+
+print_metric_summary(
+    Standard_Normal_3D_Uncorrelated,
+    metrics,
+    sampler;
+    comparison=:reference,
+)
+```
+
+The reported uncertainty is the empirical standard deviation across benchmark
+repetitions. Call `metric_summary(...)` when the formatted table should be
+returned as a string without being printed, or `metric_summary_rows(...)` for
+the numeric values as named tuples.
+
 ## Generating comparison plots
 - Overview plot of all selected metrics
 ```

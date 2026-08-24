@@ -79,6 +79,26 @@ and repetitions sequential. `use_sampler=true` uses the draw configuration
 stored in `s`; set `use_sampler=false` to forward the supplied `n_steps` to
 each sampling call. The sampler `s` is used in either case.
 
+### Generating text summaries
+
+The persisted comparison can also be inspected as a table of unnormalized
+values and uncertainties:
+
+```julia
+print_metric_summary(Standard_Normal_3D_Uncorrelated, metrics, sampler)
+print_metric_summary(
+    Standard_Normal_3D_Uncorrelated,
+    metrics,
+    sampler;
+    comparison=:reference,
+)
+```
+
+The default IID table reports sampler and IID means and standard deviations,
+their raw difference, and the normalized value used by `plot_metrics`.
+Reference mode keeps metrics with known values and reports their raw difference
+plus the number of sampler standard deviations from the reference.
+
 ### Generating comparison plots
 - Overview plot of all selected metrics
 ```
@@ -157,6 +177,9 @@ The following metrics are available to compare custom generated MC samples to II
 ### One-sample metrics
 - Marginal mean: `marginal_mean()`
 - Marginal variance: `marginal_variance()`
+- Marginal quantiles: `marginal_quantiles()` defaults to 50%, 90%, and 99%.
+  Use `marginal_quantiles(0.95)` or `marginal_quantiles(percent=95)` for a
+  custom quantile, and pass a vector to calculate several at once.
 - Global mode: `global_mode()`
 - Marginal mode: `marginal_mode()`
 - Marginal skewness: `marginal_skewness()`

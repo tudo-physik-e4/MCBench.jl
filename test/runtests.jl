@@ -25,6 +25,7 @@ include("fixtures.jl")
     include("metrics.jl")
     include("distances.jl")
     include("teststatistics.jl")
+    include("metric_summary.jl")
     include("plotting.jl")
     include("examples.jl")
 end

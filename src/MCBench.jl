@@ -30,6 +30,7 @@ include("reference_values.jl")
 # Benchmark orchestration, persistence, and presentation.
 include("twosampleteststatics.jl")
 include("teststatistic.jl")
+include("metric_summary.jl")
 include("plotting_teststat.jl")
 include("batmh.jl")
 

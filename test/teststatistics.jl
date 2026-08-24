@@ -53,6 +53,23 @@
                 )
                 @test size(MCBench.read_teststatistic(testcase, metric)) == (2, 6)
 
+                quantile_metric = MCBench.marginal_quantiles()
+                quantile_paths = MCBench.build_teststatistic(
+                    testcase,
+                    [quantile_metric];
+                    n=2,
+                    n_steps=24,
+                    n_samples=12,
+                    par=false,
+                    clean=true,
+                    use_sampler=false,
+                )
+                @test quantile_paths == [joinpath(
+                    "teststatistics",
+                    "Persistence-Test-Quantiles-50-90-99.txt",
+                )]
+                @test size(MCBench.read_teststatistic(testcase, quantile_metric)) == (6, 2)
+
                 source = MCBench.sample(testcase, 30)
                 sampler = MCBench.DsvSampler([source]; info="Compared-Sampler")
                 MCBench.build_teststatistic(

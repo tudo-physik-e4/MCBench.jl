@@ -153,6 +153,25 @@ println(
     round.(vec(mean(candidate_means; dims=2)); digits=3),
 )
 
+# A text summary exposes the actual means, standard deviations, differences,
+# and the normalized values shown by the overview plot.
+MCBench.print_metric_summary(
+    testcase,
+    metrics,
+    external_candidate_sampler;
+    names=parameter_names,
+)
+
+# Reference mode keeps metrics with known population values. Its final column
+# expresses the raw difference in sampler standard deviations.
+MCBench.print_metric_summary(
+    testcase,
+    metrics,
+    external_candidate_sampler;
+    names=parameter_names,
+    comparison=:reference,
+)
+
 scenario_1_plot_dir = joinpath(output_root, testcase.info)
 mkpath(scenario_1_plot_dir)
 

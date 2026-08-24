@@ -38,6 +38,11 @@ function _normal_reference_values(dim::Int)
         marginal_mode=zeros(dim),
         marginal_skewness=zeros(dim),
         marginal_kurtosis=zeros(dim),
+        marginal_quantiles=metric -> [
+            Distributions.quantile(Normal(), probability)
+            for probability in metric.probabilities
+            for _ in 1:dim
+        ],
         wasserstein_1d=zeros(dim),
         sliced_wasserstein_distance=0.0,
         maximum_mean_discrepancy=0.0,

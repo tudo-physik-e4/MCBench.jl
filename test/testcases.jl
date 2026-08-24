@@ -26,6 +26,7 @@
             reference_values=(
                 marginal_mean=0.0,
                 marginal_variance=[1.0, 2.0],
+                marginal_quantiles=metric -> fill(4.2, 2 * length(metric.probabilities)),
                 wasserstein_1d=0.0,
                 maximum_mean_discrepancy=0.0,
             ),
@@ -34,6 +35,10 @@
         @test testcase.reference_values.marginal_mean == 0.0
         @test MCBench.reference_values(testcase, MCBench.marginal_mean()) == [0.0, 0.0]
         @test MCBench.reference_values(testcase, MCBench.marginal_variance()) == [1.0, 2.0]
+        @test MCBench.reference_values(
+            testcase,
+            MCBench.marginal_quantiles([0.25, 0.75]),
+        ) == fill(4.2, 4)
         @test MCBench.reference_values(testcase, MCBench.wasserstein_1d()) == [0.0, 0.0]
         @test MCBench.reference_values(
             testcase,
@@ -71,6 +76,12 @@
             MCBench.normal_3d_uncorrelated,
             MCBench.marginal_mean(),
         ) == zeros(3)
+        normal_quantiles = MCBench.reference_values(
+            MCBench.normal_3d_uncorrelated,
+            MCBench.marginal_quantiles([0.5, 0.9]),
+        )
+        @test normal_quantiles[1:3] ≈ zeros(3) atol=1e-14
+        @test normal_quantiles[4:6] ≈ fill(quantile(Normal(), 0.9), 3)
         @test isnothing(MCBench.reference_values(
             MCBench.cauchy_1d,
             MCBench.marginal_mean(),

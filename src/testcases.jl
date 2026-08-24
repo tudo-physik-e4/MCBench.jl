@@ -15,10 +15,11 @@ function _validate_reference_values(values)
     values isa NamedTuple || throw(ArgumentError("reference_values must be a NamedTuple"))
 
     for (name, value) in pairs(values)
-        valid = value isa Real || value isa AbstractVector{<:Real}
+        valid = value isa Real || value isa AbstractVector{<:Real} || value isa Function
         valid || throw(ArgumentError(
-            "reference value :$name must be a real number or a vector of real numbers",
+            "reference value :$name must be numeric, a numeric vector, or a function",
         ))
+        value isa Function && continue
         all(isfinite, value isa Real ? (value,) : value) || throw(ArgumentError(
             "reference value :$name must contain only finite numbers",
         ))
@@ -48,7 +49,9 @@ Testcases(
 )
 ```
 
-Scalars may be used when all dimensions share the same reference value.
+Scalars may be used when all dimensions share the same reference value. For a
+configurable metric, an entry may instead be a function that receives the
+metric and returns its matching scalar or vector.
 """
 struct Testcases{
     D<:Union{Distribution,Target},

@@ -1,6 +1,9 @@
 const _DEFAULT_PLOT_SIZE = (500, round(Int, 2 * 500 / 3))
 
-_metric_title(testcase, metric, dim) = "$(testcase.info)-$(metric.info)-x$dim"
+function _metric_title(testcase, metric, dim)
+    label = metric_output_labels(testcase, metric)[dim]
+    "$(testcase.info)-$label"
+end
 
 function _validate_statistic_dimensions(testcase, metric, values)
     expected = metric_output_dimension(testcase, metric)
@@ -314,6 +317,7 @@ function plot_metrics(
         sampler_values = read_teststatistic(testcase, metric, sampler)
         dimensions = _validate_statistic_dimensions(testcase, metric, iid_values)
         _validate_statistic_dimensions(testcase, metric, sampler_values)
+        labels = metric_output_labels(testcase, metric; names=names)
 
         for dim in 1:dimensions
             iid_row = iid_values[dim, :]
@@ -326,16 +330,8 @@ function plot_metrics(
             normalized_mean = (mean(sampler_row) - mean(iid_row)) / iid_scale
             normalized_std = std(sampler_row) / iid_scale
 
-            label = if metric_output_dimension(testcase, metric) == 1
-                string(metric.info)
-            elseif isempty(names)
-                "$(metric.info)-x$dim"
-            else
-                "$(metric.info)($(names[dim]))"
-            end
-
             push!(normalized_values, (
-                name=label,
+                name=labels[dim],
                 val=normalized_mean,
                 std=normalized_std,
             ))
@@ -484,18 +480,12 @@ function plot_reference_metrics(
 
         sampler_values = read_teststatistic(testcase, metric, sampler)
         dimensions = _validate_statistic_dimensions(testcase, metric, sampler_values)
+        labels = metric_output_labels(testcase, metric; names=names)
 
         for dim in 1:dimensions
-            label = if dimensions == 1
-                string(metric.info)
-            elseif isempty(names)
-                "$(metric.info)-x$dim"
-            else
-                "$(metric.info)($(names[dim]))"
-            end
             sampler_row = sampler_values[dim, :]
             push!(values_to_plot, (
-                name=label,
+                name=labels[dim],
                 val=mean(sampler_row) - references[dim],
                 std=std(sampler_row),
             ))

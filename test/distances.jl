@@ -34,8 +34,11 @@
         @test kernel(0.0) == 1.0
         @test kernel([0.0, 2.0]) ≈ [1.0, exp(-1.0)]
         @test MCBench.compute_bandwidth(x, y) ≈ 2.5
+        @test MCBench.get_mmd(x, y) ≈ MCBench.get_mmd(x, y; g=0.2)
+        @test MCBench.get_mmd(10 .* x, 10 .* y) ≈ MCBench.get_mmd(x, y)
         @test MCBench.get_mmd(x, y; g=0.5) ≈ MCBench.get_mmd(y, x; g=0.5)
         @test isfinite(MCBench.get_mmd(x, y))
+        @test_throws ArgumentError MCBench.get_mmd(zeros(1, 2), zeros(1, 2))
     end
 
     @testset "two-sample metric dispatch" begin
