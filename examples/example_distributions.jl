@@ -1,84 +1,314 @@
-#Normal Distributions
-
-f = Normal()
-bounds = NamedTupleDist(x = [-10..10])
-normal_1d_uncorrelated = Testcases(f,bounds,1,"Normal-1D-Uncorrelated")
-
-f = MvNormal(zeros(2), I(2))
-bounds = NamedTupleDist(x = [-10..10 for i in 1:2])
-normal_2d_uncorrelated = Testcases(f,bounds,2,"Normal-2D-Uncorrelated")
-
-f = MvNormal(zeros(3), I(3))
-bounds = NamedTupleDist(x = [-10..10 for i in 1:3])
-normal_3d_uncorrelated = Testcases(f,bounds,3,"Normal-3D-Uncorrelated")
-
-f = MvNormal(zeros(10), I(10))
-bounds = NamedTupleDist(x = [-10..10 for i in 1:10])
-normal_10d_uncorrelated = Testcases(f,bounds,10,"Normal-10D-Uncorrelated")
-
-f = MvNormal(zeros(100), I(100))
-bounds = NamedTupleDist(x = [-10..10 for i in 1:100])
-normal_100d_uncorrelated = Testcases(f,bounds,100,"Normal-100D-Uncorrelated")
-
-f = MvNormal(zeros(2), [1.0 0.3; 0.3 1.0])
-bounds = NamedTupleDist(x = [-10..10 for i in 1:2])
-normal_2d_weakly_correlated = Testcases(f,bounds,2,"Normal-2D-Weakly-Correlated")
-
-f = MvNormal(zeros(2), [1.0 0.9; 0.9 1.0])
-bounds = NamedTupleDist(x = [-10..10 for i in 1:2])
-normal_2d_strongly_correlated = Testcases(f,bounds,2,"Normal-2D-Strongly-Correlated")
-
-f = MvNormal(zeros(10), ones(10,10)*0.2 + I(10)*0.8)
-bounds = NamedTupleDist(x = [-10..10 for i in 1:10])
-normal_10d_weakly_correlated = Testcases(f,bounds,10,"Normal-10D-Weakly-Correlated")
-
-f = MvNormal(zeros(10), ones(10,10)*0.9 + I(10)*0.1)
-bounds = NamedTupleDist(x = [-10..10 for i in 1:10])
-normal_10d_strongly_correlated = Testcases(f,bounds,10,"Normal-10D-Strongly-Correlated")
-
-f = MvNormal(zeros(100), ones(100,100)*0.2 + I(100)*0.8)
-bounds = NamedTupleDist(x = [-10..10 for i in 1:100])
-normal_100d_weakly_correlated = Testcases(f,bounds,100,"Normal-100D-Weakly-Correlated")
-
-f = MvNormal(zeros(100), ones(100,100)*0.9 + I(100)*0.1)
-bounds = NamedTupleDist(x = [-10..10 for i in 1:100])
-normal_100d_strongly_correlated = Testcases(f,bounds,100,"Normal-100D-Strongly-Correlated")
-
-f = MixtureModel([Normal(2,1), Normal(-2,1)], [0.5, 0.5])
-bounds = NamedTupleDist(x = [-10..10])
-normal_1d_multimodal_4std = Testcases(f,bounds,1,"Normal-1D-Multimodal-4std")
-
-f = MixtureModel([Normal(10,1), Normal(-10,1)], [0.5, 0.5])
-bounds = NamedTupleDist(x = [-20..20])
-normal_1d_multimodal_20std = Testcases(f,bounds,1,"Normal-1D-Multimodal-20std") 
-
-f = MixtureModel([Normal(2,1), Normal(-2,1)], [0.25, 0.75])
-bounds = NamedTupleDist(x = [-10..10])
-normal_1d_multimodal_4std_1to3 = Testcases(f,bounds,1,"Normal-1D-Multimodal-4std-1to3")
-
-f = MixtureModel([Normal(10,1), Normal(-10,1)], [0.25, 0.75])
-bounds = NamedTupleDist(x = [-20..20])
-normal_1d_multimodal_20std_1to3 = Testcases(f,bounds,1,"Normal-1D-Multimodal-20std-1to3")
+# Built-in MCBench testcases
+# ==========================
+#
+# This file is the catalog of distributions shipped with MCBench. Most users
+# only need to select one of the testcase constants below, for example:
+#
+#     testcase = MCBench.normal_3d_uncorrelated
+#     testcase = MCBench.nonlinear_5d_mixture_laplace_t_hard
+#
+# The names describe the dimension and the main sampling challenge. Each
+# testcase contains a sampleable target, finite BAT bounds, a display name, and
+# analytical reference values where these are available.
+#
+# Quick guide
+# -----------
+# - `normal_*_uncorrelated`: simple baseline targets.
+# - `normal_*_weakly_correlated`: mild linear dependence.
+# - `normal_*_strongly_correlated`: difficult linear dependence.
+# - `normal_*_multimodal_*`: separated Gaussian modes.
+# - `cauchy_1d`: heavy tails without finite mean or variance.
+# - `nonlinear_5d_mixture_laplace_t_*`: nonlinear dependence, mixtures,
+#   heteroskedasticity, and heavy tails.
+# - `eight_schools_testcase*`: a realistic hierarchical posterior, with or
+#   without a log transformation of its scale parameter.
 
 
-##Cauchy Distributions
-f = Cauchy()
-bounds = NamedTupleDist(x = [-10..10])
-cauchy_1d = Testcases(f,bounds,1,"Cauchy-1D")
+# ---------------------------------------------------------------------------
+# Shared construction helpers
+# ---------------------------------------------------------------------------
+
+# Population discrepancies are zero when a distribution is compared with
+# itself. Their empirical estimates from two finite samples will still vary.
+function _normal_reference_values(dim::Int)
+    (
+        marginal_mean=zeros(dim),
+        marginal_variance=ones(dim),
+        global_mode=zeros(dim),
+        marginal_mode=zeros(dim),
+        marginal_skewness=zeros(dim),
+        marginal_kurtosis=zeros(dim),
+        wasserstein_1d=zeros(dim),
+        sliced_wasserstein_distance=0.0,
+        maximum_mean_discrepancy=0.0,
+    )
+end
+
+function _moment_reference_values(distribution)
+    distribution_mean = Distributions.mean(distribution)
+    dim = distribution_mean isa Real ? 1 : length(distribution_mean)
+    (
+        marginal_mean=distribution_mean,
+        marginal_variance=Distributions.var(distribution),
+        wasserstein_1d=zeros(dim),
+        sliced_wasserstein_distance=0.0,
+        maximum_mean_discrepancy=0.0,
+    )
+end
+
+function _bounded_testcase(
+    distribution,
+    dim::Int,
+    info::String;
+    interval=-10..10,
+    reference_values=(;),
+)
+    bounds = NamedTupleDist(x=fill(interval, dim))
+    Testcases(
+        distribution,
+        bounds,
+        dim,
+        info;
+        reference_values=reference_values,
+    )
+end
 
 
-##Multimodal Mixture 
-r = 5
-f1 = MvNormal(r*ones(10), ones(10,10)*0.9 + I(10)*0.1)
-f2 = MvNormal(-r*ones(10), ones(10,10)*0.9 + I(10)*0.1)
-f = MixtureModel([f1,f2], [0.25, 0.75])
-bounds = NamedTupleDist(x = [-100..100 for i in 1:10])
-normal_10d_multimodal_10std = Testcases(f,bounds,10,"Normal-10D-Multimodal-10std")
+# ---------------------------------------------------------------------------
+# 1. Gaussian baseline targets
+# ---------------------------------------------------------------------------
 
-r = 5
-f1 = MvNormal(r*ones(3), ones(3,3)*0.9 + I(3)*0.1)
-f2 = MvNormal(-r*ones(3), ones(3,3)*0.9 + I(3)*0.1)
-f = MixtureModel([f1,f2], [0.25, 0.75])
-bounds = NamedTupleDist(x = [-100..100 for i in 1:3])
-normal_3d_multimodal_10std = Testcases(f,bounds,3,"Normal-3D-Multimodal-10std")
+function _normal_testcase(dim::Int, info::String; correlation=0.0)
+    distribution = if dim == 1
+        Normal()
+    else
+        covariance = fill(correlation, dim, dim)
+        covariance[diagind(covariance)] .= 1.0
+        MvNormal(zeros(dim), covariance)
+    end
 
+    _bounded_testcase(
+        distribution,
+        dim,
+        info;
+        reference_values=_normal_reference_values(dim),
+    )
+end
+
+# Independent standard normals are useful for basic correctness and scaling
+# checks. The 100D variant can also expose poor high-dimensional behavior.
+const normal_1d_uncorrelated = _normal_testcase(1, "Normal-1D-Uncorrelated")
+const normal_2d_uncorrelated = _normal_testcase(2, "Normal-2D-Uncorrelated")
+const normal_3d_uncorrelated = _normal_testcase(3, "Normal-3D-Uncorrelated")
+const normal_10d_uncorrelated = _normal_testcase(10, "Normal-10D-Uncorrelated")
+const normal_100d_uncorrelated = _normal_testcase(100, "Normal-100D-Uncorrelated")
+
+# Equicorrelated normals isolate the effect of linear dependence. Every pair
+# of dimensions has the correlation shown in the testcase name.
+const normal_2d_weakly_correlated = _normal_testcase(
+    2,
+    "Normal-2D-Weakly-Correlated";
+    correlation=0.3,
+)
+const normal_2d_strongly_correlated = _normal_testcase(
+    2,
+    "Normal-2D-Strongly-Correlated";
+    correlation=0.9,
+)
+const normal_10d_weakly_correlated = _normal_testcase(
+    10,
+    "Normal-10D-Weakly-Correlated";
+    correlation=0.2,
+)
+const normal_10d_strongly_correlated = _normal_testcase(
+    10,
+    "Normal-10D-Strongly-Correlated";
+    correlation=0.9,
+)
+const normal_100d_weakly_correlated = _normal_testcase(
+    100,
+    "Normal-100D-Weakly-Correlated";
+    correlation=0.2,
+)
+const normal_100d_strongly_correlated = _normal_testcase(
+    100,
+    "Normal-100D-Strongly-Correlated";
+    correlation=0.9,
+)
+
+
+# ---------------------------------------------------------------------------
+# 2. Gaussian mixture targets
+# ---------------------------------------------------------------------------
+
+function _univariate_mixture_testcase(
+    separation,
+    weights,
+    info;
+    interval=-10..10,
+)
+    distribution = MixtureModel(
+        [Normal(separation, 1), Normal(-separation, 1)],
+        weights,
+    )
+    _bounded_testcase(
+        distribution,
+        1,
+        info;
+        interval=interval,
+        reference_values=_moment_reference_values(distribution),
+    )
+end
+
+# These one-dimensional cases separate mode-finding problems from dependence
+# problems. The 1-to-3 variants additionally test unequal mode weights.
+const normal_1d_multimodal_4std = _univariate_mixture_testcase(
+    2,
+    [0.5, 0.5],
+    "Normal-1D-Multimodal-4std",
+)
+const normal_1d_multimodal_20std = _univariate_mixture_testcase(
+    10,
+    [0.5, 0.5],
+    "Normal-1D-Multimodal-20std";
+    interval=-20..20,
+)
+const normal_1d_multimodal_4std_1to3 = _univariate_mixture_testcase(
+    2,
+    [0.25, 0.75],
+    "Normal-1D-Multimodal-4std-1to3",
+)
+const normal_1d_multimodal_20std_1to3 = _univariate_mixture_testcase(
+    10,
+    [0.25, 0.75],
+    "Normal-1D-Multimodal-20std-1to3";
+    interval=-20..20,
+)
+
+function _multivariate_mixture_testcase(dim::Int, info::String)
+    separation = 5
+    covariance = fill(0.9, dim, dim)
+    covariance[diagind(covariance)] .= 1.0
+    components = [
+        MvNormal(fill(separation, dim), covariance),
+        MvNormal(fill(-separation, dim), covariance),
+    ]
+    distribution = MixtureModel(components, [0.25, 0.75])
+
+    _bounded_testcase(
+        distribution,
+        dim,
+        info;
+        interval=-100..100,
+        reference_values=_moment_reference_values(distribution),
+    )
+end
+
+# Both multivariate mixtures combine separated, unequal modes with strong
+# within-mode correlation.
+const normal_3d_multimodal_10std = _multivariate_mixture_testcase(
+    3,
+    "Normal-3D-Multimodal-10std",
+)
+const normal_10d_multimodal_10std = _multivariate_mixture_testcase(
+    10,
+    "Normal-10D-Multimodal-10std",
+)
+
+
+# ---------------------------------------------------------------------------
+# 3. Heavy-tailed target
+# ---------------------------------------------------------------------------
+
+# Cauchy has no finite mean or variance, so those reference values are
+# intentionally absent.
+const cauchy_1d = _bounded_testcase(Cauchy(), 1, "Cauchy-1D")
+
+
+# ---------------------------------------------------------------------------
+# 4. Nonlinear 5D Mixture-Laplace-t targets
+# ---------------------------------------------------------------------------
+
+# The target mechanics are kept in a companion file so this catalog remains
+# easy to scan. The model combines:
+#
+# - an optional two-component Gaussian mixture for x1;
+# - a nonlinear Laplace conditional for x2;
+# - a curved, heavy-tailed Student-t conditional for x3;
+# - a heteroskedastic Laplace conditional for x4; and
+# - a smoothly gated Laplace mixture for x5.
+include("nonlinear_5d_mixture_laplace_t.jl")
+
+# Easy scenario: x1 is unimodal, the x1-x2 curve varies slowly, and the
+# remaining dependencies and heteroskedasticity are mild.
+const nonlinear_5d_mixture_laplace_t_easy_params = NonlinearMixtureLaplaceTParams(
+    A=2.0,
+    ω=0.2,
+    σ1=3.0,
+    b2=0.6,
+    mode_sep1=0.0,
+    mix_p1=0.01,
+    d3=1.2,
+    γ3=0.6,
+    ρ3=0.3,
+    ν3=4.0,
+    s3=0.8,
+    b4_base=0.6,
+    η4=0.05,
+    b5=0.1,
+    m5_base=0.0,
+    m5_amp=0.1,
+    ω5=0.5,
+    κ=0.8,
+)
+
+# Hard scenario: x1 has two widely separated, unequally weighted modes. Its
+# faster x1-x2 oscillation is layered on top of the stronger default nonlinear
+# dependencies, heteroskedasticity, and x5 mixture gate.
+const nonlinear_5d_mixture_laplace_t_hard_params = withparams(
+    NonlinearMixtureLaplaceTParams();
+    mode_sep1=8.0,
+    mix_p1=0.3,
+    ω=0.7,
+)
+
+const nonlinear_5d_mixture_laplace_t_easy = nonlinear_5d_mixture_laplace_t(
+    nonlinear_5d_mixture_laplace_t_easy_params;
+    info="Nonlinear-5D-Mixture-Laplace-t-Easy",
+)
+
+const nonlinear_5d_mixture_laplace_t_hard = nonlinear_5d_mixture_laplace_t(
+    nonlinear_5d_mixture_laplace_t_hard_params;
+    info="Nonlinear-5D-Mixture-Laplace-t-Hard",
+)
+
+export NonlinearMixtureLaplaceTParams, NonlinearMixtureLaplaceT, withparams
+export nonlinear_5d_mixture_laplace_t
+export nonlinear_5d_mixture_laplace_t_easy, nonlinear_5d_mixture_laplace_t_hard
+export nonlinear_5d_mixture_laplace_t_easy_params
+export nonlinear_5d_mixture_laplace_t_hard_params
+
+
+# ---------------------------------------------------------------------------
+# 5. PosteriorDB: eight schools
+# ---------------------------------------------------------------------------
+
+# The eight-schools model is a standard hierarchical Bayesian benchmark. The
+# transformed version stores log(tau), which removes the positive boundary on
+# the population-scale parameter and is often easier for MCMC samplers.
+#
+# Model data, accept-reject sampling, and log-density details live in the
+# companion file; only the two ready-to-use testcase choices are listed here.
+include("example_posteriordb.jl")
+
+const eight_schools_testcase = make_eight_schools_testcase(
+    info="EightSchoolsAcceptReject",
+)
+
+const eight_schools_testcase_trafo = make_eight_schools_testcase(
+    transformed=true,
+    info="EightSchoolsAcceptReject-Transformed",
+)
+
+export EightSchoolsAcceptReject, make_eight_schools_testcase
+export eight_schools_testcase, eight_schools_testcase_trafo

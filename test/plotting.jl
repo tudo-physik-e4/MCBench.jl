@@ -3,7 +3,15 @@
         cd(dir) do
             mkpath("teststatistics")
             mkpath("teststatistics_sampler")
-            testcase = standard_normal_testcase(1; info="Plot-Test")
+            distribution = Normal()
+            bounds = NamedTupleDist(x=[-5..5])
+            testcase = MCBench.Testcases(
+                distribution,
+                bounds,
+                1,
+                "Plot-Test";
+                reference_values=(marginal_mean=0.05,),
+            )
             metric = MCBench.marginal_mean()
             source = MCBench.make_dsv(collect(-2.0:2.0))
             sampler = MCBench.DsvSampler([source]; info="Compared")
@@ -17,15 +25,40 @@
                 ["[-0.1]", "[0.0]", "[0.1]", "[0.2]", "[0.3]"],
             )
 
-            MCBench.plot_teststatistic(testcase, metric)
+            iid_paths = MCBench.plot_teststatistic(testcase, metric)
             iid_plot = joinpath("teststatistics", "Plot-Test-Mean-x1.pdf")
+            @test iid_paths == [iid_plot]
             @test isfile(iid_plot)
             @test filesize(iid_plot) > 0
+            @test length(MCBench.Plots.current().series_list) == 2
 
-            MCBench.plot_teststatistic(testcase, metric, sampler; nbins=3)
-            comparison_plot = joinpath("Plot-Test", "Plot-Test-MeanCompared-x1.pdf")
+            comparison_paths = MCBench.plot_teststatistic(testcase, metric, sampler; nbins=3)
+            comparison_plot = joinpath("Plot-Test", "Plot-Test-Mean-Compared-x1.pdf")
+            @test comparison_paths == [comparison_plot]
             @test isfile(comparison_plot)
             @test filesize(comparison_plot) > 0
+            @test length(MCBench.Plots.current().series_list) == 3
+
+            rm(comparison_plot)
+            unsaved_plots = MCBench.plot_teststatistic(
+                testcase,
+                metric,
+                sampler;
+                nbins=3,
+                save_plots=false,
+            )
+            @test length(unsaved_plots) == 1
+            @test unsaved_plots[1] isa MCBench.Plots.Plot
+            @test !isfile(comparison_plot)
+
+            MCBench.plot_teststatistic(
+                testcase,
+                metric,
+                sampler;
+                nbins=3,
+                show_reference=false,
+            )
+            @test length(MCBench.Plots.current().series_list) == 2
 
             MCBench.plot_metrics(testcase, [metric], sampler; names=["x"])
             metrics_pdf = joinpath("Plot-Test", "Plot-Test-Compared-metrics.pdf")
@@ -34,6 +67,69 @@
             @test isfile(metrics_png)
             @test filesize(metrics_pdf) > 0
             @test filesize(metrics_png) > 0
+
+            rm(metrics_pdf)
+            rm(metrics_png)
+            unsaved_overview = MCBench.plot_metrics(
+                testcase,
+                [metric],
+                sampler;
+                names=["x"],
+                save_plots=false,
+            )
+            @test unsaved_overview isa MCBench.Plots.Plot
+            expected_iid_normalized_value = 0.1 / std([-0.2, -0.1, 0.0, 0.1, 0.2])
+            @test any(
+                series -> any(x -> x ≈ expected_iid_normalized_value, series[:x]),
+                unsaved_overview.series_list,
+            )
+            @test !isfile(metrics_pdf)
+            @test !isfile(metrics_png)
+
+            # Metrics without a stored reference are silently omitted.
+            reference_paths = MCBench.plot_reference_metrics(
+                testcase,
+                [MCBench.marginal_variance(), metric],
+                sampler;
+                names=["x"],
+            )
+            reference_pdf = joinpath(
+                "Plot-Test",
+                "Plot-Test-Compared-reference-metrics.pdf",
+            )
+            reference_png = joinpath(
+                "Plot-Test",
+                "Plot-Test-Compared-reference-metrics.png",
+            )
+            @test reference_paths == [reference_pdf, reference_png]
+            @test all(isfile, reference_paths)
+            @test all(path -> filesize(path) > 0, reference_paths)
+
+            unsaved_reference_overview = MCBench.plot_reference_metrics(
+                testcase,
+                [metric],
+                sampler;
+                names=["x"],
+                save_plots=false,
+            )
+            @test unsaved_reference_overview isa MCBench.Plots.Plot
+            marker_series = only(filter(
+                series -> series[:seriestype] == :scatter,
+                unsaved_reference_overview.series_list,
+            ))
+            @test any(x -> x ≈ 0.05, marker_series[:x])
+            labels = string.(getindex.(unsaved_reference_overview.series_list, :label))
+            @test all(
+                label -> label in labels,
+                ["1σ region", "2σ region", "3σ region"],
+            )
+
+            missing_reference = standard_normal_testcase(1; info="Missing-Reference")
+            @test_throws ArgumentError MCBench.plot_reference_metrics(
+                missing_reference,
+                [metric],
+                sampler;
+            )
 
             MCBench.Plots.closeall()
         end

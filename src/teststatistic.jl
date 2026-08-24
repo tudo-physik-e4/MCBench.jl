@@ -1,286 +1,336 @@
-"""
-    run_teststatistic(t, samples::DensitySampleVector, m::TM, s)
-
-Calculate and return a metric value based on the provided test case, sample vector, metric, and sampler.
-
-# Arguments
-- `t`: A test case. This can either be of `AbstractTestcase` subtype or simply a `Testcases` object.
-- `samples::DensitySampleVector`: A vector containing the density samples.
-- `m::TM`: The metric to be calculated, where `TM` is a subtype of `TestMetric`.
-- `s`: A sampler or configuration. This can either be of type `AS` (any subtype of `AnySampler`) or an `Int`.
-
-# Returns
-- `TestMetric`: The calculated metric value.
-
-# Notes
-This function has two implementations to accommodate different secnatios. In case the metrics are calculated on IID samples an `Int` can be passed as the sampler as an actual sampler is not needed.  
-
-"""
-# Overloaded function to run a test statistic with a test case, density sample vector, and sampling algorithm
-function run_teststatistic(t::AT, samples::DensitySampleVector, m::TM, s::AS) where {TM <: TestMetric, AT <: AbstractTestcase, AS <: AnySampler}
-    if m isa TwoSampleMetric
-        return run_teststatistic_two_sample_metric(t, samples, m, s)
-    end
-    mval = calc_metric(t, samples, m)
+"""Calculate a one-sample metric from an existing density sample vector."""
+function run_teststatistic(
+    testcase::AbstractTestcase,
+    samples::DensitySampleVector,
+    metric::TestMetric,
+    ::AnySampler,
+)
+    calc_metric(testcase, samples, metric)
 end
 
-# Overloaded function to run a test statistic with a test case, density sample vector, and integer
-function run_teststatistic(t::Testcases, samples::DensitySampleVector, m::TM, s::Int) where {TM <: TestMetric}
-    mval = calc_metric(t, samples, m)
+function run_teststatistic(
+    testcase::AbstractTestcase,
+    samples::DensitySampleVector,
+    metric::TestMetric,
+    marker::Int,
+)
+    metric isa TwoSampleMetric && return run_teststatistic_two_sample_metric(
+        testcase,
+        samples,
+        metric,
+        marker,
+    )
+    calc_metric(testcase, samples, metric)
 end
+
 export run_teststatistic
 
 
+function _statistic_filename(testcase, metric, sampler=nothing)
+    sampler_suffix = isnothing(sampler) ? "" : "-$(sampler.info)"
+    "$(testcase.info)-$(metric.info)$(sampler_suffix).txt"
+end
+
+function _statistic_output_paths(testcase, metrics, sampler, iid::Bool)
+    is_iid = sampler isa IIDSamplingAlgorithm || iid
+    output_dir = is_iid ? "teststatistics" : "teststatistics_sampler"
+    mkpath(output_dir)
+    selected_sampler = is_iid ? nothing : sampler
+    [
+        joinpath(output_dir, _statistic_filename(testcase, metric, selected_sampler))
+        for metric in metrics
+    ]
+end
+
 """
-    build_teststatistic(t<:AbstractTestcase, m::Vector{TestMetric}; 
-        s=IIDSampler(), n::Int=10^2, n_steps::Int=10^5, 
-        n_samples::Int=10^5, par::Bool=true, 
-        clean::Bool=false, unweight::Bool=true, 
-        use_sampler::Bool=true, iid=false)
+    build_teststatistic(testcase, metrics;
+                        s=IIDSampler(), n=100, n_steps=100_000,
+                        n_samples=100_000, par=true, clean=false,
+                        unweight=true, use_sampler=true, iid=false,
+                        verbose=false)
 
-Build and store test statistics for a given test case and multiple Metrics. This function manages file creation and invokes reshuffling and sampling to calculate the desired statistics.
-The resampling is performed `n` times according to the effective sample size of the provided sampler.
-Sampling is repeted until `n samples` of effective samples are generated.
+Build empirical test-statistic distributions for `metrics`.
 
-# Arguments
-- `t<:AbstractTestcase`: The test case, is a subtype of `AbstractTestcase`.
-- `m::Vector{TM}`: A vector of metrics, where `TM` is a subtype of `TestMetric`.
+For each of the `n` repetitions, this function obtains samples from `s`,
+evaluates every metric on the same sample batch, and writes each result as one
+JSON array per line. It returns the paths of the metric files it created or
+appended to. Output directories are created automatically.
 
-# Keyword Arguments
-- `s`: A sampling algorithm. Defaults to `IIDSampler()`.
-- `n::Int`: Number of iterations aka the number of times the tests and calculations of the metrics is performed. Defaults to `10^2`.
-- `n_steps::Int`: Number of steps for the sampling algorithm. This setting is only necessary for samplers that require a fixed number of steps. This is not relevant if the number of steps is defined in the sampler object. Defaults to `10^5`. 
-- `n_samples::Int`: Number of samples to generate. This setting referes to the number of IID samples. Defaults to `10^5`. 
-- `par::Bool`: Whether to enable parallel processing. Defaults to `true`.
-- `clean::Bool`: If `true`, clears the output files before calculation. Defaults to `false`.
-- `unweight::Bool`: Whether to unweight samples during reshuffling. If `false` resampling to the effective sample size will be skipped. Defaults to `true`. 
-- `use_sampler::Bool`: Whether to utilize the sampler in the calculations. This is only necessary for internal sampler types which have custom settings (like fixed number of steps). It will use the actual sampling object instead of creating a new instance of the sampler object with default settings and the number of steps in this function. Defaults to `true`.
-- `iid::Bool`: If `true`, forces IID behavior regardless of the sampler type. Can be used for IID to IID comparisons. Defaults to `false`.
+# Keywords
 
-# Returns
-- `Nothing`: Results are stored in specified files.
+- `s`: sampler used to obtain candidate samples. The default `IIDSampler()`
+  draws directly from the testcase.
+- `n`: number of independent metric repetitions, and therefore the number of
+  lines written to each output file.
+- `n_steps`: sample count requested from each call to `sample` only when
+  `use_sampler=false`.
+- `n_samples`: number of samples passed to each metric repetition. When
+  positive, draws are concatenated until this size is available and unused
+  samples are retained for the following repetition. When non-positive, one
+  complete sampler draw is used per repetition.
+- `par`: calculate different metrics concurrently for a repetition. Sampling
+  and the `n` repetitions remain sequential. With one metric, this has no
+  effect. Custom metrics used with `par=true` should not mutate their shared
+  sample input or unsynchronized global state.
+- `clean`: overwrite existing statistic files when `true`; append when
+  `false`.
+- `unweight`: convert weighted draws to an unweighted sample of approximately
+  their Kish effective sample size before batching when `true`.
+- `use_sampler`: select how each draw is configured. When `true`, call
+  `sample(testcase, s)` so settings stored in `s` control the draw. When
+  `false`, call `sample(testcase, s; n_steps=n_steps)` so this function's
+  `n_steps` value is forwarded explicitly. The sampler `s` is used in both
+  cases; this keyword does not turn sampling on or off.
+- `iid`: route output to the IID `teststatistics/` directory and omit the
+  sampler name from the filename, even when `s` is not an IID sampler. It does
+  not change how samples are generated.
+- `verbose`: print occasional repetition progress when `true`.
 
-# Notes
-1. Make sure to have created `teststatistics` and `teststatistics_sampler` filepaths.
-2. File paths are generated based on the `info` property of the test case, metric, and sampler.
-3. If `clean` is `true`, all files are overwritten. Otherwise, results are appended.
-4. The function ensures that files are properly closed, even in case of errors.
-5. Reshuffling and sampling are handled by the `build_teststat_reshuffle` function.
+# Output
 
-# Example
+IID results are stored as
+`teststatistics/<testcase>-<metric>.txt`. Results from other samplers are
+stored as
+`teststatistics_sampler/<testcase>-<metric>-<sampler>.txt`, unless `iid=true`.
+
+# Examples
+
+Use the sampler's own configuration:
+
 ```julia
-metrics = [Metric1(), Metric2()]
-testcase = MyTestcase()
-build_teststatistic(testcase, metrics; n=100, par=true, clean=true)
+sampler = IIDSampler(5_000, "IID")
+paths = build_teststatistic(testcase, metrics; s=sampler, n=20, clean=true)
+```
+
+Explicitly request 5,000 samples from every sampler draw and evaluate metrics
+on batches of 1,000 samples:
+
+```julia
+paths = build_teststatistic(
+    testcase,
+    metrics;
+    s=sampler,
+    n=20,
+    n_steps=5_000,
+    n_samples=1_000,
+    use_sampler=false,
+    par=true,
+    clean=true,
+)
 ```
 """
-function build_teststatistic(t::T, m::Vector{TM}; s=IIDSampler(), n::Int=10^2, n_steps::Int=10^5, n_samples::Int=10^5, par::Bool=true, clean::Bool=false, unweight::Bool=true, use_sampler::Bool=true, iid=false) where {T<:AbstractTestcase, TM <: TestMetric}
-    fnm = [string("./teststatistics/", string(t.info, "-", im.info, ".txt")) for im in m]
-    if !isa(s, IIDSamplingAlgorithm) && !iid
-        fnm = [string("./teststatistics_sampler/", string(t.info, "-", im.info, "-", s.info, ".txt")) for im in m]
-    end
-    if clean
-        fs = [open(f, "w+") for f in fnm]
-        close.(fs)
+function build_teststatistic(
+    testcase::AbstractTestcase,
+    metrics::AbstractVector{<:TestMetric};
+    s=IIDSampler(),
+    n::Int=100,
+    n_steps::Int=100_000,
+    n_samples::Int=100_000,
+    par::Bool=true,
+    clean::Bool=false,
+    unweight::Bool=true,
+    use_sampler::Bool=true,
+    iid::Bool=false,
+    verbose::Bool=false,
+)
+    isempty(metrics) && throw(ArgumentError("metrics cannot be empty"))
+    n > 0 || throw(ArgumentError("n must be positive"))
+    n_steps > 0 || throw(ArgumentError("n_steps must be positive"))
+
+    paths = _statistic_output_paths(testcase, metrics, s, iid)
+    mode = clean ? "w" : "a"
+    streams = IO[]
+
+    try
+        append!(streams, (open(path, mode) for path in paths))
+        build_teststat_reshuffle(
+            testcase,
+            n,
+            metrics,
+            streams;
+            s=s,
+            n_steps=n_steps,
+            n_samples=n_samples,
+            unweight=unweight,
+            par=par,
+            use_sampler=use_sampler,
+            verbose=verbose,
+        )
+    finally
+        foreach(stream -> isopen(stream) && close(stream), streams)
     end
 
-    fs = [open(f, "a+") for f in fnm]
-    try
-        build_teststat_reshuffle(t, n, m, fs, s=s, n_steps=n_steps, n_samples=n_samples, unweight=unweight, par=par, use_sampler=use_sampler)
-    finally
-        # `build_teststat_reshuffle` closes the streams after a successful run.
-        # Closing an already closed stream is harmless, and the `finally` block
-        # also guarantees cleanup without hiding exceptions from callers.
-        close.(fs)
-    end
+    paths
 end
+
 export build_teststatistic
 
-"""
-    build_teststat_reshuffle(t<:AbstractTestcase, n::Int, m::Vector{TestMetric}, fnm::Vector{IOStream}; 
-        s=IIDSampler(), n_steps=10^5, n_samples=0, unweight=true, par=false, use_sampler=true) -> Nothing
 
-This function is prone to be changed mostly used for internal usage, please use the `build_teststatistic` function instead!
-Generates reshuffled test statistics for a given test case and metric vector, writing results to specified files.
-
-# Arguments
-- `t<:AbstractTestcase`: The test case to be evaluated, is a subtype of `AbstractTestcase`.
-- `n::Int`: Number of reshuffling iterations to perform.
-- `m::Vector{TM}`: A vector of metrics to evaluate, where `TM` is a subtype of `TestMetric`.
-- `fnm::Vector{IOStream}`: A vector of open file streams for writing test statistics.
-
-# Keyword Arguments
-- `s`: The sampling algorithm to use. Defaults to `IIDSampler()`.
-- `n_steps::Int`: Number of steps for the sampling algorithm. Defaults to `10^5`.
-- `n_samples::Int`: Number of samples to generate for each iteration. Defaults to `0` (use all available samples).
-- `unweight::Bool`: Whether to resample based on effective sample size (ESS) when weights are unequal. Defaults to `true`.
-- `par::Bool`: Enable parallel processing if `true`. Defaults to `false`.
-- `use_sampler::Bool`: Use the sampler for data generation if `true`. Defaults to `true`.
-
-# Returns
-- `Nothing`: Results are written to the provided file streams.
-
-# Notes
-1. Handles both cases of generating fixed or variable sample sizes (`n_samples > 0` or `n_samples <= 0`).
-2. Ensures proper resampling when weights are unequal, maintaining consistent ESS.
-3. Supports parallel and sequential processing based on the `par` argument.
-4. Automatically closes all file streams upon completion.
-
-# Example
-```julia
-testcase = MyTestcase()
-metrics = [Metric1(), Metric2()]
-file_streams = [open("metric1.txt", "w"), open("metric2.txt", "w")]
-build_teststat_reshuffle(testcase, 100, metrics, file_streams; n_steps=10^4, unweight=true, par=false)
-```
-
-# Error Handling
-- Ensures file streams are closed in case of unexpected errors during execution.
-"""
-function build_teststat_reshuffle(t::T, n::Int, m::Vector{TM}, fnm::Vector{IOStream}; 
-    s=IIDSampler(), n_steps=10^5, n_samples=0, unweight=true, par=false, use_sampler=true) where {TM <: TestMetric, T<:AbstractTestcase}
-    draw_samples() = use_sampler ? sample(t, s) : sample(t, s, n_steps=n_steps)
-    prepare_samples(v) = if unweight && v.weight != ones(length(v))
-        resample_dsv_to_ess(v, s)
-    else
-        v
+function _prepare_statistic_samples(samples, unweight::Bool)
+    if unweight && is_weighted(samples)
+        return resample_dsv_to_ess(samples)
     end
+    samples
+end
 
-    j = 0
-    while j < n
-        v = prepare_samples(draw_samples())
-        if n_samples <= 0
-            for i in 1:length(m)
-                write(fnm[i], string([j.val for j in run_teststatistic(t, v, m[i], s)], "\n"))
-            end
-            progress_every = max(1, fld(n_steps, 100))
-            j % progress_every == 0 && println(j)
-            j += 1
-            continue
+function _write_metric_result(io, testcase, samples, metric, sampler)
+    result = run_teststatistic(testcase, samples, metric, sampler)
+    println(io, JSON.json([value.val for value in result]))
+end
+
+function _write_metric_results(
+    streams,
+    testcase,
+    samples,
+    metrics,
+    sampler,
+    parallel::Bool,
+)
+    if parallel && length(metrics) > 1
+        Folds.foreach(eachindex(metrics)) do index
+            _write_metric_result(
+                streams[index],
+                testcase,
+                samples,
+                metrics[index],
+                sampler,
+            )
         end
-        if n_samples > 0
-            nv = v
-            while j < n
-                while length(nv) < n_samples
-                    rv = prepare_samples(draw_samples())
-                    nv = vcat(nv, rv)
-                end
-                while length(nv) >= n_samples && j < n
-                    nvcalc = nv[1:n_samples]
-                    if par
-                        Folds.collect(write(fnm[i], string([j.val for j in run_teststatistic(t, nvcalc, m[i], s)], "\n")) for i in 1:length(m))
-                    else
-                        for i in 1:length(m)
-                            write(fnm[i], string([j.val for j in run_teststatistic(t, nvcalc, m[i], s)], "\n"))
-                        end
-                    end
-                    nv = length(nv) > n_samples ? nv[n_samples+1:end] : nv[1:0]
-                    progress_every = max(1, fld(n_steps, 100))
-                    j % progress_every == 0 && println(j)
-                    j += 1
-                end
-            end
+    else
+        for index in eachindex(metrics)
+            _write_metric_result(
+                streams[index],
+                testcase,
+                samples,
+                metrics[index],
+                sampler,
+            )
         end
     end
-    close.(fnm)
+    nothing
 end
 
-
 """
-    read_teststatistic(t::AbstractTestcase, m::TM)
-    read_teststatistic(t::AbstractTestcase, m::TM, s::AnySampler)
+    build_teststat_reshuffle(testcase, n, metrics, streams;
+                             s=IIDSampler(), n_steps=100_000,
+                             n_samples=0, unweight=true, par=false,
+                             use_sampler=true, verbose=false)
 
-Functions to read test statistics from a file.
-Read test statistics for a given test case, metric, and optionally a sampling algorithm from a file.
+Run the sampling, batching, and metric-evaluation loop used by
+[`build_teststatistic`](@ref).
 
-# Arguments
-- `t::AbstractTestcase`: The test case for which the statistics are being read.
-- `m::TM`: The metric, where `TM` is a subtype of `TestMetric`.
-- `s::AnySampler` (optional): The sampling algorithm used to generate the statistics. If not givin the IID statistics are read.
+`streams` must contain one writable stream for every entry in `metrics`, in
+the same order. One result is written to each stream for every repetition.
+Streams are owned by the caller: this function neither opens nor closes them.
+It returns `nothing`.
 
-# Returns
-- `Array{Float64}`: A reshaped array containing the parsed test statistics.
+Sampling and batching follow these rules:
 
-# Notes
-- Constructs the file name using `t.info` and `m.info`, and optionally `s.info` if a sampler is provided.
-- Reads and parses the contents of the file to extract the statistics.
+1. With `use_sampler=true`, a draw is obtained with `sample(testcase, s)`, so
+   the sampler's stored/default configuration is used.
+2. With `use_sampler=false`, the draw uses
+   `sample(testcase, s; n_steps=n_steps)`.
+3. If `unweight=true`, weighted draws are resampled to approximately their
+   Kish effective sample size.
+4. If `n_samples > 0`, draws are buffered until a batch of exactly
+   `n_samples` is available. Otherwise, each complete draw is one batch.
+5. Every metric is evaluated on the same batch. `par=true` evaluates those
+   metrics concurrently; it does not parallelize sampler draws or repetitions.
 
-# Example
-```julia
-testcase = MyTestcase()
-metric = MyMetric()
-statistics = read_teststatistic(testcase, metric)  # Without sampler
-println(statistics)
-
-sampler = MySampler()
-statistics_with_sampler = read_teststatistic(testcase, metric, sampler)  # With sampler
-println(statistics_with_sampler)
-```
+Most callers should use [`build_teststatistic`](@ref), which validates the
+public inputs, creates the output files, and guarantees stream cleanup.
 """
-function read_teststatistic(t::AbstractTestcase, m::TM) where {TM <: TestMetric}
-    filename = string(t.info, "-", m.info, ".txt")
-    parse_teststatistic(string("./teststatistics/", filename))
-end
+function build_teststat_reshuffle(
+    testcase::AbstractTestcase,
+    n::Int,
+    metrics::AbstractVector{<:TestMetric},
+    streams::AbstractVector{<:IO};
+    s=IIDSampler(),
+    n_steps::Int=100_000,
+    n_samples::Int=0,
+    unweight::Bool=true,
+    par::Bool=false,
+    use_sampler::Bool=true,
+    verbose::Bool=false,
+)
+    length(streams) == length(metrics) || throw(DimensionMismatch(
+        "one output stream is required per metric",
+    ))
 
-function read_teststatistic(t::AbstractTestcase, m::TM, s::AnySampler) where {TM <: TestMetric}
-    filename = string(t.info, "-", m.info, "-", s.info, ".txt")
-    parse_teststatistic(string("./teststatistics_sampler/", filename))
-end
+    draw_samples() = _prepare_statistic_samples(
+        use_sampler ? sample(testcase, s) : sample(testcase, s; n_steps=n_steps),
+        unweight,
+    )
 
+    progress_interval = max(1, fld(n, 10))
+    buffer = nothing
 
-"""
-    parse_teststatistic(filename::String)
+    for repetition in 1:n
+        samples = if n_samples <= 0
+            draw_samples()
+        else
+            if isnothing(buffer)
+                buffer = draw_samples()
+            end
+            while length(buffer) < n_samples
+                additional = draw_samples()
+                isempty(additional) && error("sampler returned no samples")
+                buffer = vcat(buffer, additional)
+            end
 
-Parses test statistics from a specified file.
+            selected = buffer[1:n_samples]
+            buffer = length(buffer) == n_samples ? buffer[1:0] : buffer[n_samples + 1:end]
+            selected
+        end
 
-# Arguments
-- `filename::String`: The name of the file containing test statistics.
-
-# Returns
-- `Array{Float64}`: A reshaped array containing the parsed test statistics.
-
-# Notes
-The function reads lines from the file, parses them as JSON, and reshapes the resulting data.
-
-# Example
-```julia
-statistics = parse_teststatistic("./teststatistics/example.txt")
-println(statistics)
-```
-"""
-function parse_teststatistic(filename::String)
-    f = open(string(filename), "r")
-    mvals = JSON.parse.(readlines(f))
-    close(f)
-    reshape(vcat(mvals...), length(mvals[1]), length(mvals))
-end
-
-
-"""
-    parseline(f::IOStream)
-
-Parses a single line of JSON data from an open file stream.
-
-# Arguments
-- `f::IOStream`: The open file stream from which the line is read.
-
-# Returns
-- `Vector{Float64}`: A vector parsed from the JSON line.
-- `[]`: An empty array if the line is empty.
-
-# Example
-```julia
-file = open("./teststatistics/example.txt", "r")
-line_data = parseline(file)
-close(file)
-println(line_data)
-```
-"""
-function parseline(f::IOStream)
-    iol = readline(f)
-    if iol == ""
-        []
-    else
-        return Vector{Float64}(JSON.parse(iol))
+        _write_metric_results(streams, testcase, samples, metrics, s, par)
+        if verbose && (repetition == 1 || repetition == n || repetition % progress_interval == 0)
+            println("Completed $repetition/$n test-statistic repetitions")
+        end
     end
+
+    nothing
 end
+
+
+"""Read persisted IID statistics for one testcase and metric."""
+function read_teststatistic(testcase::AbstractTestcase, metric::TestMetric)
+    parse_teststatistic(joinpath(
+        "teststatistics",
+        _statistic_filename(testcase, metric),
+    ))
+end
+
+"""Read persisted sampler statistics for one testcase and metric."""
+function read_teststatistic(
+    testcase::AbstractTestcase,
+    metric::TestMetric,
+    sampler::AnySampler,
+)
+    parse_teststatistic(joinpath(
+        "teststatistics_sampler",
+        _statistic_filename(testcase, metric, sampler),
+    ))
+end
+
+"""Parse line-delimited JSON statistic vectors into a dimensions-by-runs matrix."""
+function parse_teststatistic(filename::AbstractString)
+    rows = open(filename, "r") do io
+        JSON.parse.(readlines(io))
+    end
+    isempty(rows) && throw(ArgumentError("test-statistic file is empty: $filename"))
+
+    row_length = length(first(rows))
+    all(row -> length(row) == row_length, rows) || throw(DimensionMismatch(
+        "test-statistic rows have inconsistent lengths in: $filename",
+    ))
+    reshape(Float64.(vcat(rows...)), row_length, length(rows))
+end
+
+"""Parse one JSON statistic vector from an open stream."""
+function parseline(io::IO)
+    line = readline(io)
+    isempty(line) ? Float64[] : Float64.(JSON.parse(line))
+end
+
+export read_teststatistic, parse_teststatistic, parseline

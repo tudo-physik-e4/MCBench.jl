@@ -4,8 +4,12 @@
         @test MCBench.wasserstein1d([0.0, 1.0], [1.0, 2.0]; p=2) ≈ 1.0
         @test MCBench.wasserstein1d([0.0, 10.0], [1.0]; wa=[1.0, 0.0]) ≈ 1.0
         @test MCBench.wasserstein1d([1.0], [0.0, 2.0]; wb=[1.0, 1.0]) ≈ 1.0
-        @test_throws AssertionError MCBench.wasserstein1d(Float64[], [1.0])
-        @test_throws AssertionError MCBench.wasserstein1d([1.0], [1.0]; wa=[1.0, 2.0])
+        @test_throws ArgumentError MCBench.wasserstein1d(Float64[], [1.0])
+        @test_throws DimensionMismatch MCBench.wasserstein1d(
+            [1.0],
+            [1.0];
+            wa=[1.0, 2.0],
+        )
     end
 
     @testset "projection helpers and sliced Wasserstein" begin

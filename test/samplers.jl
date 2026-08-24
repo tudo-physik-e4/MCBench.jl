@@ -29,8 +29,8 @@
                 MCBench.close_sampler!(directory_sampler)
             end
 
-            @test_throws AssertionError MCBench.FileBasedSampler(String[])
-            @test_throws ErrorException MCBench.FileBasedSampler(joinpath(dir, "missing.txt"))
+            @test_throws ArgumentError MCBench.FileBasedSampler(String[])
+            @test_throws ArgumentError MCBench.FileBasedSampler(joinpath(dir, "missing.txt"))
         end
     end
 
@@ -60,6 +60,22 @@
             finally
                 MCBench.close_sampler!(sampler.fbs)
             end
+
+            mismatched_path = write_lines(
+                joinpath(dir, "03.csv"),
+                ["a,d,c", "4,40,400"],
+            )
+            mismatched = MCBench.CsvBasedSampler(
+                [first_path, mismatched_path],
+            )
+            try
+                MCBench.read_sample!(mismatched)
+                MCBench.read_sample!(mismatched)
+                @test_throws ArgumentError MCBench.read_sample!(mismatched)
+                @test_throws ArgumentError MCBench.set_mask(mismatched, ["missing"])
+            finally
+                MCBench.close_sampler!(mismatched)
+            end
         end
     end
 
@@ -78,7 +94,16 @@
         sampler = MCBench.DsvSampler([first_sample]; info="DSV-Resampling")
         Random.seed!(33)
         @test length(MCBench.sample(sampler; n_steps=2)) == 2
-        @test_throws AssertionError MCBench.DsvSampler(typeof(first_sample)[])
+        @test_throws ArgumentError MCBench.DsvSampler(typeof(first_sample)[])
+
+        weighted = MCBench.make_dsv(
+            [1.0, 2.0, 3.0];
+            weights=[1.0, 2.0, 1.0],
+        )
+        weighted_sampler = MCBench.DsvSampler([weighted])
+        MCBench.unweight!(weighted_sampler)
+        @test !weighted_sampler.weighted
+        @test !MCBench.is_weighted(only(weighted_sampler.dsvs))
     end
 
     @testset "BAT Metropolis-Hastings configuration" begin

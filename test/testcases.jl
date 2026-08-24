@@ -10,6 +10,71 @@
         @test default_bounds.dim == 1
         @test default_bounds.info == "Default-Bounds"
         @test default_bounds.bounds isa NamedTupleDist
+        @test isempty(default_bounds.reference_values)
+        @test_throws ArgumentError MCBench.Testcases(Normal(), 0, "Invalid")
+    end
+
+
+    @testset "reference values" begin
+        distribution = MvNormal(zeros(2), Matrix{Float64}(I, 2, 2))
+        bounds = NamedTupleDist(x=fill(-5..5, 2))
+        testcase = MCBench.Testcases(
+            distribution,
+            bounds,
+            2,
+            "References";
+            reference_values=(
+                marginal_mean=0.0,
+                marginal_variance=[1.0, 2.0],
+                wasserstein_1d=0.0,
+                maximum_mean_discrepancy=0.0,
+            ),
+        )
+
+        @test testcase.reference_values.marginal_mean == 0.0
+        @test MCBench.reference_values(testcase, MCBench.marginal_mean()) == [0.0, 0.0]
+        @test MCBench.reference_values(testcase, MCBench.marginal_variance()) == [1.0, 2.0]
+        @test MCBench.reference_values(testcase, MCBench.wasserstein_1d()) == [0.0, 0.0]
+        @test MCBench.reference_values(
+            testcase,
+            MCBench.maximum_mean_discrepancy(),
+        ) == [0.0]
+        @test isnothing(MCBench.reference_values(testcase, MCBench.marginal_mode()))
+
+        wrong_dimension = MCBench.Testcases(
+            distribution,
+            bounds,
+            2,
+            "Wrong-References";
+            reference_values=(marginal_mean=[0.0],),
+        )
+        @test_throws DimensionMismatch MCBench.reference_values(
+            wrong_dimension,
+            MCBench.marginal_mean(),
+        )
+        @test_throws ArgumentError MCBench.Testcases(
+            distribution,
+            bounds,
+            2,
+            "Invalid-References";
+            reference_values=(marginal_mean="zero",),
+        )
+        @test_throws ArgumentError MCBench.Testcases(
+            distribution,
+            bounds,
+            2,
+            "Nonfinite-References";
+            reference_values=(marginal_mean=Inf,),
+        )
+
+        @test MCBench.reference_values(
+            MCBench.normal_3d_uncorrelated,
+            MCBench.marginal_mean(),
+        ) == zeros(3)
+        @test isnothing(MCBench.reference_values(
+            MCBench.cauchy_1d,
+            MCBench.marginal_mean(),
+        ))
     end
 
     @testset "univariate distribution" begin
@@ -56,5 +121,12 @@
         @test length(MCBench.sample(testcase, 2)) == 2
         @test length(MCBench.sample(testcase; n_steps=2)) == 2
         @test length(MCBench.sample(testcase, MCBench.IIDSampler(); n_steps=2)) == 2
+
+        referenced = MCBench.DsvTestcase(
+            sampler;
+            info="Referenced-DSV",
+            reference_values=(marginal_mean=[1.0, 1.0],),
+        )
+        @test MCBench.reference_values(referenced, MCBench.marginal_mean()) == [1.0, 1.0]
     end
 end

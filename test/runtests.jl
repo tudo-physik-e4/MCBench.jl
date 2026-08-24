@@ -19,6 +19,7 @@ include("fixtures.jl")
 
 @testset verbose = true "MCBench" begin
     include("testcases.jl")
+    include("example_distributions.jl")
     include("sample_utils.jl")
     include("samplers.jl")
     include("metrics.jl")

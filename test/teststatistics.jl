@@ -19,13 +19,11 @@
     @testset "IID and sampler statistic files" begin
         mktempdir() do dir
             cd(dir) do
-                mkpath("teststatistics")
-                mkpath("teststatistics_sampler")
                 testcase = standard_normal_testcase(2; info="Persistence-Test")
                 metric = MCBench.marginal_mean()
 
                 Random.seed!(55)
-                MCBench.build_teststatistic(
+                output_paths = MCBench.build_teststatistic(
                     testcase,
                     [metric];
                     n=4,
@@ -35,6 +33,10 @@
                     clean=true,
                     use_sampler=false,
                 )
+                @test output_paths == [joinpath(
+                    "teststatistics",
+                    "Persistence-Test-Mean.txt",
+                )]
                 iid_values = MCBench.read_teststatistic(testcase, metric)
                 @test size(iid_values) == (2, 4)
                 @test all(isfinite, iid_values)
@@ -85,6 +87,12 @@
                 )
                 @test size(MCBench.read_teststatistic(parallel_testcase, parallel_metrics[1])) == (2, 2)
                 @test size(MCBench.read_teststatistic(parallel_testcase, parallel_metrics[2])) == (2, 2)
+
+                @test_throws ArgumentError MCBench.build_teststatistic(
+                    testcase,
+                    MCBench.TestMetric[];
+                    n=1,
+                )
             end
         end
     end
@@ -92,8 +100,6 @@
     @testset "sampler failures are not hidden" begin
         mktempdir() do dir
             cd(dir) do
-                mkpath("teststatistics")
-                mkpath("teststatistics_sampler")
                 testcase = standard_normal_testcase(1; info="Failure-Test")
                 sampler = FailingSampler("Failing")
 

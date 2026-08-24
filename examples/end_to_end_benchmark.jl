@@ -4,6 +4,7 @@ using Random
 using LinearAlgebra
 using Distributions
 using IntervalSets
+using Plots
 using ValueShapes
 
 import MCBench
@@ -28,7 +29,16 @@ function main(;
 
     target = MvNormal(zeros(2), Matrix{Float64}(I, 2, 2))
     bounds = NamedTupleDist(x=fill(-6..6, 2))
-    testcase = MCBench.Testcases(target, bounds, 2, "End-to-End-Normal")
+    testcase = MCBench.Testcases(
+        target,
+        bounds,
+        2,
+        "End-to-End-Normal";
+        reference_values=(
+            marginal_mean=zeros(2),
+            marginal_variance=ones(2),
+        ),
+    )
     metrics = MCBench.TestMetric[
         MCBench.marginal_mean(),
         MCBench.marginal_variance(),
@@ -72,21 +82,59 @@ function main(;
         iid_mean = MCBench.read_teststatistic(testcase, metrics[1])
         sampler_mean = MCBench.read_teststatistic(testcase, metrics[1], sampler)
 
-        MCBench.plot_teststatistic(testcase, metrics[1], sampler; nbins=8)
-        MCBench.plot_metrics(testcase, metrics, sampler; names=["x₁", "x₂"])
-
         plot_dir = joinpath(output_dir, testcase.info)
-        plot_files = [
-            joinpath(plot_dir, "End-to-End-Normal-MeanShifted-Sampler-x1.pdf"),
-            joinpath(plot_dir, "End-to-End-Normal-MeanShifted-Sampler-x2.pdf"),
-            joinpath(plot_dir, "End-to-End-Normal-Shifted-Sampler-metrics.pdf"),
-            joinpath(plot_dir, "End-to-End-Normal-Shifted-Sampler-metrics.png"),
-        ]
+        mkpath(plot_dir)
+        plot_files = String[]
+
+        # Build and save an individual comparison plot for every metric and
+        # every parameter. Keeping these as separate lines makes it easy to
+        # customize a plot before writing it.
+        for metric in metrics
+            metric_plots = MCBench.plot_teststatistic(
+                testcase,
+                metric,
+                sampler;
+                nbins=8,
+                save_plots=false,
+            )
+
+            for (dimension, metric_plot) in enumerate(metric_plots)
+                plot_path = joinpath(
+                    plot_dir,
+                    "$(testcase.info)-$(metric.info)-$(sampler.info)-x$dimension.pdf",
+                )
+                savefig(metric_plot, plot_path)
+                push!(plot_files, plot_path)
+            end
+        end
+
+        # The overview contains all metrics in one normalized plot.
+        overview_plot = MCBench.plot_metrics(
+            testcase,
+            metrics,
+            sampler;
+            names=["x₁", "x₂"],
+            save_plots=false,
+        )
+
+        overview_pdf = joinpath(
+            plot_dir,
+            "$(testcase.info)-$(sampler.info)-metrics.pdf",
+        )
+        savefig(overview_plot, overview_pdf)
+        push!(plot_files, overview_pdf)
+
+        overview_png = joinpath(
+            plot_dir,
+            "$(testcase.info)-$(sampler.info)-metrics.png",
+        )
+        savefig(overview_plot, overview_png)
+        push!(plot_files, overview_png)
 
         (iid_mean=iid_mean, sampler_mean=sampler_mean, plot_files=plot_files)
     end
 
-    MCBench.Plots.closeall()
+    closeall()
     verbose && println("Benchmark outputs written to ", output_dir)
     result
 end

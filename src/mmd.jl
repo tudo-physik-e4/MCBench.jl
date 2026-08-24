@@ -1,82 +1,126 @@
-"""
-    get_mmd(s1::DensitySampleVector, s2::DensitySampleVector; g=0, N=0)
-    compute_bandwidth(x, y)
-
-
-Functions to calculate the Maximum Mean Discrepancy (MMD) between two samples.
-This code is adapted from the [IPMeasures.jl](https://github.com/aicenter/IPMeasures.jl) package.
-Please refer to the repository for the original implementation.
-"""
+"""Base type for kernels used by maximum mean discrepancy."""
 abstract type AbstractKernel end
-const MetricOrFun = Union{PreMetric,Function}
 
-pairwisel2(x::Matrix, y::Matrix) = pairwise(SqEuclidean(), x, y, dims=2)
-pairwisel2(x::AbstractMatrix) = pairwisel2(x,x)
+const MetricOrFunction = Union{PreMetric,Function}
 
+pairwisel2(x::AbstractMatrix, y::AbstractMatrix) =
+    pairwise(SqEuclidean(), x, y; dims=2)
+pairwisel2(x::AbstractMatrix) = pairwisel2(x, x)
 
-function kernelsum(k::AbstractKernel, x::AbstractMatrix, y::AbstractMatrix, dist::MetricOrFun)
-    sum(k(dist(x,y))) / (size(x,2) * size(y,2))
+function kernelsum(
+    kernel::AbstractKernel,
+    x::AbstractMatrix,
+    y::AbstractMatrix,
+    distance::MetricOrFunction,
+)
+    sum(kernel(distance(x, y))) / (size(x, 2) * size(y, 2))
 end
 
-function kernelsum(k::AbstractKernel, x::AbstractMatrix{T}, dist::MetricOrFun) where T
-    l = size(x,2)
-    (sum(k(dist(x,x))) - l*k(T(0)))/(l^2 - l)
+function kernelsum(
+    kernel::AbstractKernel,
+    x::AbstractMatrix{T},
+    distance::MetricOrFunction,
+) where {T}
+    sample_count = size(x, 2)
+    sample_count > 1 || throw(ArgumentError("MMD requires at least two samples"))
+
+    diagonal = sample_count * kernel(zero(T))
+    (sum(kernel(distance(x, x))) - diagonal) / (sample_count^2 - sample_count)
 end
 
-kernelsum(k::AbstractKernel, x::AbstractVector, dist::MetricOrFun) = zero(eltype(x))
+kernelsum(::AbstractKernel, x::AbstractVector, ::MetricOrFunction) = zero(eltype(x))
 
-struct GaussianKernel{T} <: AbstractKernel
-	γ::T
-end
+"""Gaussian kernel `exp(-γ * squared_distance)`."""
+struct GaussianKernel{T<:Real} <: AbstractKernel
+    γ::T
 
-(m::GaussianKernel)(x::Number) = exp(-m.γ * x)
-(m::GaussianKernel)(x::AbstractArray) = exp.(-m.γ .* x)
-
-struct MMD{K<:AbstractKernel,D<:MetricOrFun} <: PreMetric
-    kernel::K
-    dist::D
-end
-
-function (m::MMD)(x::AbstractArray, y::AbstractArray)
-    xx = kernelsum(m.kernel, x, m.dist)
-    yy = kernelsum(m.kernel, y, m.dist)
-    xy = kernelsum(m.kernel, x, y, m.dist)
-    xx + yy - 2xy
-end
-
-mmd(k::AbstractKernel, x::AbstractArray, y::AbstractArray, dist=pairwisel2) = MMD(k, dist)(x, y)
-mmd(k::AbstractKernel, x::AbstractArray, y::AbstractArray, n::Int, dist=pairwisel2) = mmd(k, samplecolumns(x,n), samplecolumns(y,n), dist)
-
-function get_mmd(s1::DensitySampleVector, s2::DensitySampleVector; g=0, N=0)
-    s1, s2 = prepare_twosample_dsv(s1, s2,N=N)
-    x = Matrix{Float64}(hcat(unshaped.(s1).v...))
-    y = Matrix{Float64}(hcat(unshaped.(s2).v...))
-    get_mmd(x, y, g=g)
-end
-
-function get_mmd(x::AbstractArray, y::AbstractArray; g=0)
-    if g != 0
-        return mmd(GaussianKernel(g), x, y)
+    function GaussianKernel(γ::T) where {T<:Real}
+        γ >= 0 || throw(ArgumentError("Gaussian-kernel gamma cannot be negative"))
+        new{T}(γ)
     end
-    return mmd(GaussianKernel(compute_bandwidth(x, y)), x, y)
 end
 
-function compute_bandwidth(x, y)
-    combined_data = [x y]'
+(kernel::GaussianKernel)(value::Number) = exp(-kernel.γ * value)
+(kernel::GaussianKernel)(values::AbstractArray) = exp.(-kernel.γ .* values)
 
-    # Compute pairwise squared distances
-    D = pairwise(SqEuclidean(), combined_data; dims=1)
-
-    # Extract upper triangle without diagonal
-    upper_triangle = D[triu(ones(Bool, size(D, 1), size(D, 2)), 1)]
-
-    γ = median(upper_triangle)
-    return γ
+struct MMD{K<:AbstractKernel,D<:MetricOrFunction} <: PreMetric
+    kernel::K
+    distance::D
 end
 
-function compute_bandwidth(s1::DensitySampleVector, s2::DensitySampleVector)
-    s1, s2 = prepare_twosample_dsv(s1, s2)
-    x = Matrix{Float64}(hcat(unshaped.(s1).v...))
-    y = Matrix{Float64}(hcat(unshaped.(s2).v...))
-    compute_bandwidth(x, y)
+function (metric::MMD)(x::AbstractArray, y::AbstractArray)
+    within_x = kernelsum(metric.kernel, x, metric.distance)
+    within_y = kernelsum(metric.kernel, y, metric.distance)
+    between = kernelsum(metric.kernel, x, y, metric.distance)
+    within_x + within_y - 2between
 end
+
+function mmd(
+    kernel::AbstractKernel,
+    x::AbstractArray,
+    y::AbstractArray,
+    distance=pairwisel2,
+)
+    MMD(kernel, distance)(x, y)
+end
+
+function mmd(
+    kernel::AbstractKernel,
+    x::AbstractMatrix,
+    y::AbstractMatrix,
+    n::Int,
+    distance=pairwisel2,
+)
+    n > 1 || throw(ArgumentError("MMD subsample size must be at least two"))
+    n <= min(size(x, 2), size(y, 2)) || throw(DimensionMismatch(
+        "MMD subsample size exceeds the available columns",
+    ))
+
+    x_columns = randperm(size(x, 2))[1:n]
+    y_columns = randperm(size(y, 2))[1:n]
+    mmd(kernel, x[:, x_columns], y[:, y_columns], distance)
+end
+
+"""Calculate MMD between two BAT density sample vectors."""
+function get_mmd(
+    first::DensitySampleVector,
+    second::DensitySampleVector;
+    g::Real=0,
+    N::Int=0,
+)
+    first, second = prepare_twosample_dsv(first, second; N=N)
+    get_mmd(_sample_value_matrix(first), _sample_value_matrix(second); g=g)
+end
+
+function get_mmd(x::AbstractMatrix, y::AbstractMatrix; g::Real=0)
+    size(x, 1) == size(y, 1) || throw(DimensionMismatch(
+        "MMD inputs must have the same number of dimensions",
+    ))
+    gamma = iszero(g) ? compute_bandwidth(x, y) : g
+    mmd(GaussianKernel(gamma), x, y)
+end
+
+"""Median pairwise squared distance used as the Gaussian-kernel scale."""
+function compute_bandwidth(x::AbstractMatrix, y::AbstractMatrix)
+    size(x, 1) == size(y, 1) || throw(DimensionMismatch(
+        "bandwidth inputs must have the same number of dimensions",
+    ))
+    combined = hcat(x, y)
+    size(combined, 2) > 1 || throw(ArgumentError(
+        "bandwidth estimation requires at least two samples",
+    ))
+
+    distances = pairwise(SqEuclidean(), combined; dims=2)
+    upper_triangle = distances[triu(trues(size(distances)), 1)]
+    median(upper_triangle)
+end
+
+function compute_bandwidth(
+    first::DensitySampleVector,
+    second::DensitySampleVector,
+)
+    first, second = prepare_twosample_dsv(first, second)
+    compute_bandwidth(_sample_value_matrix(first), _sample_value_matrix(second))
+end
+
+export get_mmd, compute_bandwidth

@@ -1,34 +1,39 @@
 module MCBench
 
-using Distributions 
-using Statistics 
-using ValueShapes
-using LinearAlgebra
+using BAT
+using DensityInterface
+using Distances
+using Distributions
 using Folds
 using IntervalSets
-using BAT
-using StatsBase
+using JSON
+using LinearAlgebra
 using Plots
-using JSON  #for pasting teststatistic quickly 
-using StructArrays
-using HypothesisTests
-using DensityInterface
-import DensityInterface: logdensityof
-using Distances 
-using DataFrames
-using CSV
+using Random
+using Statistics
+using StatsBase
+using ValueShapes
 
+import DensityInterface: logdensityof
+
+# Core types and low-level sample handling.
 include("samplers.jl")
 include("testcases.jl")
+include("sample_utils.jl")
+
+# Metric implementations and their reference-value interface.
 include("mmd.jl")
-include("testmetrics.jl")
 include("wasserstein.jl")
+include("testmetrics.jl")
+include("reference_values.jl")
+
+# Benchmark orchestration, persistence, and presentation.
 include("twosampleteststatics.jl")
 include("teststatistic.jl")
-include("sample_utils.jl")
 include("plotting_teststat.jl")
 include("batmh.jl")
-include("../examples/example_distributions.jl")
-include("../examples/example_posteriordb.jl")
 
-end # module
+# Built-in benchmark definitions are retained for backward compatibility.
+include("../examples/example_distributions.jl")
+
+end # module MCBench

@@ -1,226 +1,215 @@
-"""
-    abstract type AnySampler
-
-An abstract type that serves as a base for all sampling algorithms.
-"""
+"""Base type for every sampler accepted by MCBench."""
 abstract type AnySampler end
-"""
-    abstract type SamplingAlgorithm <: AnySampler
 
-An abstract type for general sampling algorithms that inherit from `AnySampler`.
-"""
-abstract type SamplingAlgorithm  <: AnySampler end
-"""
-    abstract type IIDSamplingAlgorithm <: SamplingAlgorithm
+"""Base type for sampling algorithms that generate samples from a target."""
+abstract type SamplingAlgorithm <: AnySampler end
 
-An abstract type for independent and identically distributed (IID) sampling algorithms that inherit from `SamplingAlgorithm`.
-This type doesn't have any fields or methods, but it is used to have testfunctions reference their IID `Base.rand` method when sampling. 
-"""
+"""Marker type for independent and identically distributed samplers."""
 abstract type IIDSamplingAlgorithm <: SamplingAlgorithm end
-"""
-    abstract type AbstractFileBasedSampler <: AnySampler
 
-An abstract type for file-based sampling algorithms that inherit from `AnySampler`.
-"""
+"""Base type for samplers that read or resample stored values."""
 abstract type AbstractFileBasedSampler <: AnySampler end
 
+export AnySampler, SamplingAlgorithm, IIDSamplingAlgorithm, AbstractFileBasedSampler
+
+
 """
-    struct IIDSampler <: IIDSamplingAlgorithm
+    IIDSampler(n_steps=100_000, info="IID")
 
-A struct representing an IID (Independent and Identically Distributed) Sampler to created instances of IID sampling algorithms.
-
-# Fields
-- `n_steps::Int`: The number of steps for the sampler. Identical to the number of samples for IID.
-- `info::String`: Information or description of the sampler.
-
-# Constructors
-- `IIDSampler()`: Creates an `IIDSampler` with default values of `10^5` steps and "IID" as the info string.
+Configuration object used when MCBench should draw IID target samples.
 """
-struct IIDSampler <: IIDSamplingAlgorithm 
+struct IIDSampler <: IIDSamplingAlgorithm
     n_steps::Int
+    info::String
+
+    function IIDSampler(n_steps::Int, info::String)
+        n_steps > 0 || throw(ArgumentError("n_steps must be positive"))
+        new(n_steps, info)
+    end
+end
+
+IIDSampler() = IIDSampler(100_000, "IID")
+
+export IIDSampler
+
+
+"""
+    FileBasedSampler(paths; info="FileBasedSampler")
+    FileBasedSampler(path; info="FileBasedSampler")
+
+Read one sample per line from one or more plain-text files. Directory inputs
+are expanded to their contained files in lexical order.
+"""
+mutable struct FileBasedSampler <: AbstractFileBasedSampler
+    files::Vector{String}
+    current_file_index::Int
+    current_position::Int
+    current_file_handle::IOStream
     info::String
 end
 
-IIDSampler() = IIDSampler(10^5,"IID")
+function FileBasedSampler(
+    file_paths::AbstractVector{<:AbstractString};
+    info::String="FileBasedSampler",
+)
+    isempty(file_paths) && throw(ArgumentError("file paths cannot be empty"))
+    all(isfile, file_paths) || throw(ArgumentError("every sampler path must be a file"))
 
-"""
-    struct FileBasesSampler <: SamplingAlgorithm
-IO funtionalities to read data from a set of files.
-
-# Fields
-- `files::Vector{String}`: Vector of file paths.
-- `current_file_index::Int`: Index of the current file in the vector.
-- `current_position::Int`: Position within the current file.
-- `current_file_handle::IOStream`: Handle to the currently open file.
-- `info::String`: Information about the sampler. Used for plotting.
-
-# Constructors
-- `FileBasedSampler(; fields...)`
-- `FileBasedSampler(file_paths::Vector{String})`: Creates a `FileBasedSampler` with the given vector of file paths.
-- `FileBasedSampler(path::String)`: Creates a `FileBasedSampler` with the given file path. This will load all files in the directory if the path is a directory.
-"""
-mutable struct FileBasedSampler <: AbstractFileBasedSampler
-    files::Vector{String}           # Vector of file paths
-    current_file_index::Int         # Index of the current file in the vector
-    current_position::Int           # Position within the current file
-    current_file_handle::IOStream   # Handle to the currently open file
-    info::String                    # Information about the sampler
-end
-export FileBasedSampler
-
-function FileBasedSampler(file_paths::Vector{String}; info::String="FileBasedSampler")
-    @assert !isempty(file_paths) "File paths cannot be empty"
-    # Open the first file
-    first_file_handle = open(file_paths[1], "r")
-    return FileBasedSampler(file_paths, 1, 1, first_file_handle, info)
+    files = String.(abspath.(file_paths))
+    handle = open(first(files), "r")
+    FileBasedSampler(files, 1, 0, handle, info)
 end
 
-function FileBasedSampler(path::String; info::String="FileBasedSampler")
-    # Determine if the path is a file or a directory
-    if isfile(path)
-        files = [path]  # Single file
+function FileBasedSampler(path::AbstractString; info::String="FileBasedSampler")
+    files = if isfile(path)
+        [path]
     elseif isdir(path)
-        files = sort(readdir(path, join=true))  # All files in the directory
+        sort(filter(isfile, readdir(path; join=true)))
     else
-        error("Path does not exist or is neither a file nor a directory: $path")
+        throw(ArgumentError("path does not exist or is not a file or directory: $path"))
     end
 
-    @assert !isempty(files) "No files to read from."
-    first_file_handle = open(files[1], "r")
-    return FileBasedSampler(files, 1, 1, first_file_handle, info)
+    isempty(files) && throw(ArgumentError("no files found at: $path"))
+    FileBasedSampler(files; info=info)
+end
+
+function _advance_file!(sampler::FileBasedSampler)
+    close(sampler.current_file_handle)
+    sampler.current_file_index += 1
+
+    if sampler.current_file_index > length(sampler.files)
+        error("no more sample files to read")
+    end
+
+    sampler.current_file_handle = open(sampler.files[sampler.current_file_index], "r")
+    sampler.current_position = 0
+    sampler
 end
 
 function read_sample!(sampler::FileBasedSampler)
-    # If the current file handle is at the end, move to the next file
-    if eof(sampler.current_file_handle)
-        close(sampler.current_file_handle)
-        sampler.current_file_index += 1
-        if sampler.current_file_index > length(sampler.files)
-            error("No more files to read from.")
-        end
-        sampler.current_file_handle = open(sampler.files[sampler.current_file_index], "r")
-        sampler.current_position = 0
+    # Empty files are skipped so a directory may safely contain placeholders.
+    while eof(sampler.current_file_handle)
+        _advance_file!(sampler)
     end
 
-    # Read the next line/sample
-    sample = readline(sampler.current_file_handle)
+    line = readline(sampler.current_file_handle)
     sampler.current_position += 1
-    return sample
+    line
 end
 
 function reset_sampler!(sampler::FileBasedSampler)
-    # Reset to the first file and position
     close(sampler.current_file_handle)
     sampler.current_file_index = 1
-    sampler.current_position = 1
-    sampler.current_file_handle = open(sampler.files[1], "r")
+    sampler.current_position = 0
+    sampler.current_file_handle = open(first(sampler.files), "r")
+    sampler
 end
 
 function close_sampler!(sampler::FileBasedSampler)
-    close(sampler.current_file_handle)
+    isopen(sampler.current_file_handle) && close(sampler.current_file_handle)
+    nothing
 end
 
+export FileBasedSampler
+
+
 """
-    struct CsvBasedSampler <: AbstractFileBasedSampler
-    IO funtionalities to read data from a set of CSV files.
+    CsvBasedSampler(paths; info="CsvBasedSampler")
+    CsvBasedSampler(path; info="CsvBasedSampler")
 
-    # Fields
-    - `fbs::FileBasedSampler`: File-based sampler
-    - `header::Vector{String}`: Header of the CSV file
-    - `mask::Vector{Int}`: Mask to extract the desired columns
-    - `info::String`: Information about the sampler
-
-    # Constructors
-    - `CsvBasedSampler(; fields...)`
-    - `CsvBasedSampler(file_paths::Vector{String})`: Creates a `CsvBasedSampler` with the given vector of file paths.
-    - `CsvBasedSampler(path::String)`: Creates a `CsvBasedSampler` with the given file path. This will load all files in the directory if the path is a directory.
+Read numeric CSV rows while retaining the header and a selectable column mask.
+Each input file must use the same header.
 """
 mutable struct CsvBasedSampler <: AbstractFileBasedSampler
-    fbs::FileBasedSampler           # File-based sampler
-    header::Vector{String}          # Header of the CSV file
-    mask::Vector{Int}               # Mask to extract the desired columns
-    info::String                    # Information about the sampler
-end
-export CsvBasedSampler
-
-function CsvBasedSampler(file_paths::Vector{String}; info::String="CsvBasedSampler")
-    fbs = FileBasedSampler(file_paths,info=info)
-    header = split(read_sample!(fbs), ",")
-    return CsvBasedSampler(fbs,header, collect(1:length(header)),info)
+    fbs::FileBasedSampler
+    header::Vector{String}
+    mask::Vector{Int}
+    info::String
 end
 
-function CsvBasedSampler(path::String; info::String="CsvBasedSampler")
-    fbs = FileBasedSampler(path,info=info)
-    header = split(read_sample!(fbs), ",")
-    return CsvBasedSampler(fbs,header, collect(1:length(header)),info)
+function _csv_sampler(file_sampler::FileBasedSampler, info::String)
+    header = String.(split(read_sample!(file_sampler), ","))
+    CsvBasedSampler(file_sampler, header, collect(eachindex(header)), info)
+end
+
+function CsvBasedSampler(
+    file_paths::AbstractVector{<:AbstractString};
+    info::String="CsvBasedSampler",
+)
+    _csv_sampler(FileBasedSampler(file_paths; info=info), info)
+end
+
+function CsvBasedSampler(path::AbstractString; info::String="CsvBasedSampler")
+    _csv_sampler(FileBasedSampler(path; info=info), info)
 end
 
 function read_sample!(sampler::CsvBasedSampler)
-    i = sampler.fbs.current_file_handle
-    sm = read_sample!(sampler.fbs) #split(read_sample!(sampler.fbs),",")
-    j = sampler.fbs.current_file_handle
-    if i == j       #if next file skip header line
-        # return [parse(Float64,i) for i in sm[sampler.mask]]
-        return sm
-    else
-        # return [parse(Float64,i) for i in split(read_sample!(sampler.fbs),",")[sampler.mask]]
-        return read_sample!(sampler.fbs)
+    while true
+        previous_file = sampler.fbs.current_file_index
+        line = read_sample!(sampler.fbs)
+        sampler.fbs.current_file_index == previous_file && return line
+
+        # The first row after a file transition is its header. Validate and
+        # continue so header-only files are handled correctly as well.
+        next_header = String.(split(line, ","))
+        previous_path = sampler.fbs.files[previous_file]
+        current_path = sampler.fbs.files[sampler.fbs.current_file_index]
+        next_header == sampler.header || throw(ArgumentError(
+            "CSV headers differ between $previous_path and $current_path",
+        ))
     end
 end
 
-function set_mask(sampler::CsvBasedSampler, seq::Vector{String})
-    seq_symbols = Symbol.(seq) 
-    header_map = Dict(Symbol(h) => i for (i, h) in enumerate(sampler.header))
-    sampler.mask = [header_map[col] for col in seq_symbols]
+function set_mask(sampler::CsvBasedSampler, columns::AbstractVector{<:AbstractString})
+    header_indices = Dict(name => index for (index, name) in enumerate(sampler.header))
+    missing_columns = filter(column -> !haskey(header_indices, column), columns)
+    isempty(missing_columns) || throw(ArgumentError(
+        "columns not found in CSV header: $(join(missing_columns, ", "))",
+    ))
+
+    sampler.mask = [header_indices[column] for column in columns]
+    sampler
 end
 
 function reset_sampler!(sampler::CsvBasedSampler)
     reset_sampler!(sampler.fbs)
-    header = split(read_sample!(sampler.fbs), ",")
+    header = String.(split(read_sample!(sampler.fbs), ","))
+    header == sampler.header || throw(ArgumentError("CSV header changed after reset"))
+    sampler
 end
 
-""" 
-    struct DsvSampler{D<:DensitySampleVector} <: AbstractFileBasedSampler
-    IO funtionalities to read data from a set of DensitySampleVector files.
+close_sampler!(sampler::CsvBasedSampler) = close_sampler!(sampler.fbs)
 
-    # Fields
-    - `dsvs::Vector{D}`: Vector of file paths
-    - `current_dsv_index::Int`: Index of the current file in the vector
-    - `current_position::Int`: Position within the current file
-    - `weighted::Bool`: Whether the samples are weighted
-    - `total_samples::Int`: Total number of samples
-    - `neff::Vector{Float64}`: Number of effective samples
-    - `info::String`: Information about the sampler
+export CsvBasedSampler
 
-    # Constructors
-    - `DsvSampler(; fields...)`
-    - `DsvSampler(dsvs::Vector{D})`: Creates a `DsvSampler` with the given vector of file paths.
+
+"""
+    DsvSampler(dsvs; info="DsvSampler")
+
+Store one or more BAT `DensitySampleVector` objects for deterministic reuse and
+resampling in benchmark workflows.
 """
 mutable struct DsvSampler{D<:DensitySampleVector} <: AbstractFileBasedSampler
-    dsvs::Vector{D}   # Vector of file paths
-    current_dsv_index::Int              # Index of the current file in the vector
-    current_position::Int               # Position within the current file
-    weighted::Bool                      # Whether the samples are weighted
-    total_samples::Int                  # Total number of samples
-    neff::Vector{Float64}               # Number of effective samples
-    info::String                        # Information about the sampler
+    dsvs::Vector{D}
+    current_dsv_index::Int
+    current_position::Int
+    weighted::Bool
+    total_samples::Int
+    neff::Vector{Float64}
+    info::String
 end
-export DsvSampler
 
-function DsvSampler(dsvs::Vector{D}; info::String="DsvSampler") where {D<:DensitySampleVector}
-    @assert !isempty(dsvs) "Density sample vectors cannot be empty"
-    weighted = false
-    total_samples = 0
-    neff = Float64[]
-    for dsv in dsvs
-        total_samples += sum(dsv.weight)
-        push!(neff, get_effective_sample_size(dsv))
-        if dsv.weight != ones(length(dsv))
-            weighted = true
-            #break
-        end
-    end
-    return DsvSampler(dsvs, 1, 1, weighted, Int(total_samples), neff, info)
+function DsvSampler(
+    dsvs::Vector{D};
+    info::String="DsvSampler",
+) where {D<:DensitySampleVector}
+    isempty(dsvs) && throw(ArgumentError("density sample vectors cannot be empty"))
+    any(isempty, dsvs) && throw(ArgumentError("density sample vectors cannot contain empty samples"))
+
+    weighted = any(is_weighted, dsvs)
+    total_samples = sum(length, dsvs)
+    effective_sizes = Float64[get_effective_sample_size(dsv) for dsv in dsvs]
+    DsvSampler(dsvs, 1, 1, weighted, total_samples, effective_sizes, info)
 end
 
 function read_sample!(sampler::DsvSampler)
@@ -228,20 +217,32 @@ function read_sample!(sampler::DsvSampler)
         sampler.current_dsv_index += 1
         sampler.current_position = 1
     end
-    # If the current file handle is at the end, move to the next file
+
     if sampler.current_dsv_index > length(sampler.dsvs)
-        error("No more files to read from.")
+        error("no more density samples to read")
     end
-    # Read the next line/sample
-    sample = sampler.dsvs[sampler.current_dsv_index][sampler.current_position]
+
+    value = sampler.dsvs[sampler.current_dsv_index][sampler.current_position]
     sampler.current_position += 1
-    return sample
+    value
+end
+
+function reset_sampler!(sampler::DsvSampler)
+    sampler.current_dsv_index = 1
+    sampler.current_position = 1
+    sampler
 end
 
 function unweight!(sampler::DsvSampler)
-    # for i in 1:length(sampler.dsvs)
-    #     dsv_unw = sampler.dsvs[i]
-    #     dsv_unw = resample_dsv_to_ess(dsv_unw)
-    #     sampler.dsvs[i] = dsv_unw
-    # end
+    sampler.weighted || return sampler
+
+    for index in eachindex(sampler.dsvs)
+        sampler.dsvs[index] = resample_dsv_to_ess(sampler.dsvs[index])
+    end
+    sampler.weighted = false
+    sampler.total_samples = sum(length, sampler.dsvs)
+    sampler.neff = Float64[get_effective_sample_size(dsv) for dsv in sampler.dsvs]
+    reset_sampler!(sampler)
 end
+
+export DsvSampler

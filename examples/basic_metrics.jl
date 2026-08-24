@@ -18,7 +18,16 @@ function main(; n_samples::Int=2_000, seed::Int=1234, verbose::Bool=true)
     rng = MersenneTwister(seed)
     target = MvNormal(zeros(2), Matrix{Float64}(I, 2, 2))
     bounds = NamedTupleDist(x=fill(-6..6, 2))
-    testcase = MCBench.Testcases(target, bounds, 2, "Basic-Metrics-Normal")
+    testcase = MCBench.Testcases(
+        target,
+        bounds,
+        2,
+        "Basic-Metrics-Normal";
+        reference_values=(
+            marginal_mean=zeros(2),
+            marginal_variance=ones(2),
+        ),
+    )
 
     iid_values = rand(rng, target, n_samples)
     candidate_distribution = MvNormal([0.25, -0.15], Matrix{Float64}(I, 2, 2))
@@ -42,6 +51,7 @@ function main(; n_samples::Int=2_000, seed::Int=1234, verbose::Bool=true)
         variance=[metric.val for metric in variances],
         wasserstein=wasserstein,
         mmd=mmd,
+        reference_mean=MCBench.reference_values(testcase, MCBench.marginal_mean()),
     )
 
     if verbose
