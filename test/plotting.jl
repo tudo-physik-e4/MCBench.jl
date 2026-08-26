@@ -64,6 +64,20 @@
             )
             @test length(unsaved_plots) == 1
             @test unsaved_plots[1] isa MCBench.Plots.Plot
+            expected_plot_ks = MCBench.ks_test(
+                [-0.2, -0.1, 0.0, 0.1, 0.2],
+                [-0.1, 0.0, 0.1, 0.2, 0.3],
+            )
+            plot_title = string(unsaved_plots[1][1][:title])
+            @test contains(plot_title, "KS test:")
+            @test contains(
+                plot_title,
+                "D = $(round(expected_plot_ks.statistic; sigdigits=4))",
+            )
+            @test contains(
+                plot_title,
+                "p = $(round(expected_plot_ks.pvalue; sigdigits=4))",
+            )
             @test !isfile(comparison_plot)
 
             MCBench.plot_teststatistic(
@@ -72,8 +86,13 @@
                 sampler;
                 nbins=3,
                 show_reference=false,
+                show_ks_test=false,
             )
             @test length(MCBench.Plots.current().series_list) == 2
+            @test !contains(
+                string(MCBench.Plots.current()[1][:title]),
+                "KS test:",
+            )
 
             MCBench.plot_metrics(testcase, [metric], sampler; names=["x"])
             metrics_pdf = joinpath("Plot-Test", "Plot-Test-Compared-metrics.pdf")
@@ -100,6 +119,15 @@
             )
             @test !isfile(metrics_pdf)
             @test !isfile(metrics_png)
+
+            # The automatically chosen limits must include the full error bar,
+            # not just its central marker.
+            overview_with_wide_error = MCBench.plot_metrics(
+                testcase,
+                [(name="wide error", val=4.0, std=2.0)];
+                save_plots=false,
+            )
+            @test last(MCBench.Plots.xlims(overview_with_wide_error)) > 6.0
 
             quantile_overview = MCBench.plot_metrics(
                 testcase,

@@ -92,7 +92,10 @@ print_metric_summary(
 The reported uncertainty is the empirical standard deviation across benchmark
 repetitions. Call `metric_summary(...)` when the formatted table should be
 returned as a string without being printed, or `metric_summary_rows(...)` for
-the numeric values as named tuples.
+the numeric values as named tuples. For IID comparisons, every row also reports
+the two-sample KS statistic and its unadjusted p-value. The null hypothesis is
+that the repeated sampler and IID metric values follow the same continuous
+distribution; a large p-value is not proof that the distributions agree.
 
 ## Generating comparison plots
 - Overview plot of all selected metrics
@@ -115,6 +118,8 @@ plot_teststatistic(Standard_Normal_3D_Uncorrelated, marginal_mean(), sampler; nb
 The individual plot automatically includes the known mean as a dashed line.
 Use `show_reference=false` when the line is not wanted. `plot_metrics` uses the
 historical `(mean(metric) - mean(IID metric)) / std(IID metric)` normalization.
+Sampler-versus-IID histogram titles show the KS statistic and p-value computed
+from the unbinned values; use `show_ks_test=false` to hide them.
 `plot_reference_metrics` plots unnormalized differences from known values and
 uses per-metric background bands for the sampler metric's 1σ, 2σ, and 3σ
 regions.

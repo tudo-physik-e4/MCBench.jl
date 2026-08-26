@@ -33,7 +33,9 @@ function calc_metric(
     samples::DensitySampleVector,
     ::marginal_mean,
 )
-    [marginal_mean(value) for value in _as_metric_vector(BAT.mean(samples))]
+    values = _sample_value_matrix(samples)
+    weights = FrequencyWeights(samples.weight)
+    [marginal_mean(mean(row, weights)) for row in eachrow(values)]
 end
 
 export marginal_mean
@@ -53,7 +55,9 @@ function calc_metric(
     samples::DensitySampleVector,
     ::marginal_variance,
 )
-    [marginal_variance(value) for value in _as_metric_vector(BAT.var(samples))]
+    values = _sample_value_matrix(samples)
+    weights = FrequencyWeights(samples.weight)
+    [marginal_variance(var(row, weights; corrected=true)) for row in eachrow(values)]
 end
 
 export marginal_variance

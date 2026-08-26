@@ -1,4 +1,21 @@
 @testset "Density sample utilities" begin
+    @testset "BAT-shaped sample coordinates" begin
+        shaped_samples = DensitySampleVector((
+            [(x=[1.0, 2.0],), (x=[3.0, 4.0],)],
+            zeros(2),
+            ones(Int, 2),
+            fill(nothing, 2),
+            fill(nothing, 2),
+        ))
+        testcase = standard_normal_testcase(2; info="BAT-Shaped-Samples")
+        means = MCBench.calc_metric(
+            testcase,
+            shaped_samples,
+            MCBench.marginal_mean(),
+        )
+        @test getproperty.(means, :val) == [2.0, 3.0]
+    end
+
     @testset "make_dsv overloads" begin
         matrix_values = [1.0 2.0 3.0; 4.0 5.0 6.0]
         matrix_dsv = MCBench.make_dsv(matrix_values, [-1.0, -2.0, -3.0]; weights=[1.0, 2.0, 1.0])

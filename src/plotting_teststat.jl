@@ -30,6 +30,12 @@ function _add_reference_line!(plot_object, testcase, metric, dim; show_reference
     nothing
 end
 
+function _ks_plot_label(result)
+    statistic = round(result.statistic; sigdigits=4)
+    probability = round(result.pvalue; sigdigits=4)
+    "KS test: D = $statistic, p = $probability"
+end
+
 """
     plot_teststatistic(testcase, metric;
                        nbins=32, show_reference=true, save_plots=true)
@@ -93,11 +99,14 @@ end
 """
     plot_teststatistic(testcase, metric, sampler;
                        nbins=32, same_bins=true, sampler_bins=false,
-                       show_reference=true, save_plots=true)
+                       show_reference=true, show_ks_test=true,
+                       save_plots=true)
 
 Compare IID and sampler test-statistic distributions. Reference values stored
-on the testcase are shown by default. Returns the generated PDF paths.
-With `save_plots=false`, returns the unsaved plot objects instead.
+on the testcase are shown by default. The title reports the two-sample KS
+statistic and p-value calculated from the unbinned values; disable this with
+`show_ks_test=false`. Returns the generated PDF paths. With `save_plots=false`,
+returns the unsaved plot objects instead.
 """
 function plot_teststatistic(
     testcase::AbstractTestcase,
@@ -107,6 +116,7 @@ function plot_teststatistic(
     same_bins::Bool=true,
     sampler_bins::Bool=false,
     show_reference::Bool=true,
+    show_ks_test::Bool=true,
     save_plots::Bool=true,
 )
     iid_values = read_teststatistic(testcase, metric)
@@ -139,6 +149,9 @@ function plot_teststatistic(
         iid_histogram = normalize(iid_histogram)
         sampler_histogram = normalize(sampler_histogram)
         title = _metric_title(testcase, metric, dim)
+        if show_ks_test
+            title *= "\n$(_ks_plot_label(ks_test(iid_row, sampler_row)))"
+        end
 
         metric_plot = plot(
             iid_histogram;
@@ -238,10 +251,12 @@ function plot_metrics(
     for (row, y) in zip(rows, y_values)
         if haskey(row, :std)
             scatter!(overview_plot, (row.val, y); xerr=row.std, label="", color=:black)
+            row_extent = abs(row.val) + abs(row.std)
         else
             scatter!(overview_plot, (row.val, y); label="", color=:black)
+            row_extent = abs(row.val)
         end
-        max_x = max(max_x, abs(row.val))
+        max_x = max(max_x, row_extent)
     end
 
     # Background bands provide a quick visual interpretation in IID standard

@@ -4,6 +4,7 @@
 Manifest.toml
 /examples/output/
 /examples/quickstart_output/
+/examples/paper_section_6_1_output/
 ./test/*
 ./Cauchy*/
 ./Normal*/

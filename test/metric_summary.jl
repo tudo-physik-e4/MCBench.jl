@@ -41,11 +41,19 @@
             @test iid_rows[1].difference ≈ 0.1
             @test iid_rows[1].standardized_difference ≈
                 0.1 / std([-0.2, -0.1, 0.0, 0.1, 0.2])
+            expected_ks = MCBench.ks_test(
+                [-0.2, -0.1, 0.0, 0.1, 0.2],
+                [-0.1, 0.0, 0.1, 0.2, 0.3],
+            )
+            @test iid_rows[1].ks_statistic ≈ expected_ks.statistic
+            @test iid_rows[1].ks_pvalue ≈ expected_ks.pvalue
 
             iid_summary = MCBench.metric_summary(testcase, [metric], sampler; digits=4)
             @test contains(iid_summary, "IID comparison")
             @test contains(iid_summary, "Sampler mean")
             @test contains(iid_summary, "IID mean")
+            @test contains(iid_summary, "KS D")
+            @test contains(iid_summary, "KS p-value")
             @test contains(iid_summary, "Mean(x1)")
 
             output = IOBuffer()
@@ -71,6 +79,8 @@
             @test reference_rows[1].difference ≈ 0.05
             @test reference_rows[1].standardized_difference ≈
                 0.05 / std([-0.1, 0.0, 0.1, 0.2, 0.3])
+            @test isnothing(reference_rows[1].ks_statistic)
+            @test isnothing(reference_rows[1].ks_pvalue)
 
             reference_summary = MCBench.metric_summary(
                 testcase,

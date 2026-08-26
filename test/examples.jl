@@ -3,6 +3,17 @@
     @test Meta.parseall(read(runner_path, String)) isa Expr
     quickstart_path = joinpath(@__DIR__, "..", "examples", "quickstart.jl")
     @test Meta.parseall(read(quickstart_path, String)) isa Expr
+    paper_example_path = joinpath(
+        @__DIR__,
+        "..",
+        "examples",
+        "paper_section_6_1.jl",
+    )
+    paper_example = read(paper_example_path, String)
+    @test Meta.parseall(paper_example) isa Expr
+    @test contains(paper_example, "marginal_quantiles()")
+    @test contains(paper_example, "plot_reference_metrics")
+    @test contains(paper_example, "comparison=:reference")
 
     include(joinpath(@__DIR__, "..", "examples", "basic_metrics.jl"))
     basic_result = BasicMetricsExample.main(n_samples=200, seed=77, verbose=false)

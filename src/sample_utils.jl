@@ -9,8 +9,16 @@ function _validate_dsv_inputs(samples, logdensities, weights)
     nothing
 end
 
+function _sample_coordinates(value)
+    if hasproperty(value, :x)
+        coordinates = getproperty(value, :x)
+        return coordinates isa Real ? [coordinates] : coordinates
+    end
+    BAT.unshaped(value)
+end
+
 function _sample_value_matrix(samples::DensitySampleVector)
-    Matrix{Float64}(hcat(BAT.unshaped.(samples.v)...))
+    Matrix{Float64}(hcat(_sample_coordinates.(samples.v)...))
 end
 
 """

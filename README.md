@@ -95,7 +95,8 @@ print_metric_summary(
 ```
 
 The default IID table reports sampler and IID means and standard deviations,
-their raw difference, and the normalized value used by `plot_metrics`.
+their raw difference, the normalized value used by `plot_metrics`, and the
+two-sample Kolmogorov-Smirnov statistic with its p-value.
 Reference mode keeps metrics with known values and reports their raw difference
 plus the number of sampler standard deviations from the reference.
 
@@ -119,7 +120,9 @@ plot_teststatistic(Standard_Normal_3D_Uncorrelated, marginal_mean(), sampler; nb
 
 Known population values are stored once on the testcase. Individual plots show
 them as dashed reference lines by default; pass `show_reference=false` to hide
-them. `plot_metrics` retains the historical IID-centered normalization.
+them. Sampler-versus-IID histograms also report the KS statistic and p-value in
+their title; pass `show_ks_test=false` to hide this annotation. `plot_metrics`
+retains the historical IID-centered normalization.
 `plot_reference_metrics` skips metrics without known values and plots each
 remaining mean minus its reference value. Per-metric green, yellow, and red
 background bands show the 1σ, 2σ, and 3σ sampler regions.
@@ -156,6 +159,17 @@ julia --project=. examples/end_to_end_benchmark.jl
 example builds and reloads test-statistic files and writes both individual and
 overview plots to `examples/output/`. Its defaults are intentionally small so
 that it can also serve as a smoke test while developing MCBench.
+
+The walkthrough from Section 6.1 of the MCBench paper, including reproductions
+of Figures 2a, 3, and 4, is available as a separate script:
+
+```bash
+julia --project=. examples/paper_section_6_1.jl
+julia --project=. examples/paper_section_6_1.jl --paper
+```
+
+The first command creates a smaller preview. `--paper` selects the published 50
+batches of 100,000 samples and is correspondingly resource intensive.
 
 ## List of test cases
 The following table contains all test cases currently available in the benchmark suite.

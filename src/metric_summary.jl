@@ -18,7 +18,9 @@ end
 
 Return the numeric rows used by [`metric_summary`](@ref). Each row contains the
 metric label, sampler mean and standard deviation, comparison value and
-optional standard deviation, raw difference, and standardized difference.
+optional standard deviation, raw difference, and standardized difference. IID
+comparison rows additionally contain `ks_statistic` and `ks_pvalue` from a
+two-sided, approximate two-sample Kolmogorov-Smirnov test.
 
 With `comparison=:iid`, all selected metrics are compared with their empirical
 IID distributions. The standardized difference uses `std(IID metric)`. With
@@ -66,6 +68,7 @@ function metric_summary_rows(
 
             difference = sampler_mean - comparison_mean
             scale = comparison === :iid ? comparison_std : sampler_std
+            ks_result = comparison === :iid ? ks_test(iid_row, sampler_row) : nothing
             push!(rows, (
                 metric=labels[dim],
                 sampler_mean=sampler_mean,
@@ -75,6 +78,8 @@ function metric_summary_rows(
                 comparison_std=comparison_std,
                 difference=difference,
                 standardized_difference=_standardized_difference(difference, scale),
+                ks_statistic=isnothing(ks_result) ? nothing : ks_result.statistic,
+                ks_pvalue=isnothing(ks_result) ? nothing : ks_result.pvalue,
             ))
         end
     end
@@ -98,7 +103,17 @@ end
 
 function _format_metric_summary_table(rows, comparison, digits)
     headers = if comparison === :iid
-        ["Metric", "Sampler mean", "Sampler σ", "IID mean", "IID σ", "Δ", "Δ / σ_IID"]
+        [
+            "Metric",
+            "Sampler mean",
+            "Sampler σ",
+            "IID mean",
+            "IID σ",
+            "Δ",
+            "Δ / σ_IID",
+            "KS D",
+            "KS p-value",
+        ]
     else
         ["Metric", "Sampler mean", "Sampler σ", "Reference", "Δ", "Δ / σ_sampler"]
     end
@@ -113,6 +128,8 @@ function _format_metric_summary_table(rows, comparison, digits)
             _summary_number(row.comparison_std, digits),
             _summary_number(row.difference, digits),
             _summary_number(row.standardized_difference, digits),
+            _summary_number(row.ks_statistic, digits),
+            _summary_number(row.ks_pvalue, digits),
         ] :
         [
             string(row.metric),
@@ -149,8 +166,11 @@ Create a text table summarizing persisted sampler metric results.
 The sampler result is reported as its empirical mean and standard deviation
 across benchmark repetitions. Use `comparison=:iid` for the empirical IID mean
 and standard deviation, or `comparison=:reference` for exact testcase reference
-values. Reference mode includes only metrics for which a reference is stored.
-The returned string is not printed automatically.
+values. IID mode also reports the KS statistic and its unadjusted p-value for
+the complete distributions of repeated metric values. Reference mode includes
+only metrics for which a reference is stored and does not perform a KS test
+against the single reference value. The returned string is not printed
+automatically.
 """
 function metric_summary(
     testcase::AbstractTestcase,
