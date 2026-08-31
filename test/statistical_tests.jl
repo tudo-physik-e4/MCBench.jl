@@ -57,10 +57,44 @@
         @test median(shifted_pvalues) < 1e-3
     end
 
+    @testset "one-sample reference-value test" begin
+        centered_values = collect(1.0:5.0)
+        centered = MCBench.reference_value_test(centered_values, 3.0)
+        @test centered.statistic == 0.0
+        @test centered.pvalue == 1.0
+        @test centered.standard_error ≈ std(centered_values) / sqrt(5)
+        @test centered.degrees_of_freedom == 4
+
+        shifted = MCBench.reference_value_test(centered_values, 0.0)
+        expected_statistic = mean(centered_values) / (std(centered_values) / sqrt(5))
+        @test shifted.statistic ≈ expected_statistic
+        @test shifted.pvalue ≈ 0.013235599563682695 rtol = 1e-12
+
+        # A two-sided test is invariant to the sign of the difference and to
+        # translating the data and reference by the same amount.
+        opposite = MCBench.reference_value_test(-centered_values, 0.0)
+        translated = MCBench.reference_value_test(centered_values .+ 10, 13.0)
+        @test opposite.statistic ≈ -shifted.statistic
+        @test opposite.pvalue ≈ shifted.pvalue
+        @test translated.statistic ≈ centered.statistic atol = 1e-14
+        @test translated.pvalue ≈ centered.pvalue
+
+        # Deterministic repetitions use well-defined limiting results.
+        exact_constant = MCBench.reference_value_test(fill(2.0, 4), 2.0)
+        different_constant = MCBench.reference_value_test(fill(2.0, 4), 1.0)
+        @test exact_constant.statistic == 0.0
+        @test exact_constant.pvalue == 1.0
+        @test different_constant.statistic == Inf
+        @test different_constant.pvalue == 0.0
+    end
+
     @testset "input validation" begin
         @test_throws ArgumentError MCBench.ks_test(Float64[], [1.0])
         @test_throws ArgumentError MCBench.ks_test([1.0], Float64[])
         @test_throws ArgumentError MCBench.ks_test([NaN], [1.0])
         @test_throws ArgumentError MCBench.ks_test([1.0], [Inf])
+        @test_throws ArgumentError MCBench.reference_value_test([1.0], 1.0)
+        @test_throws ArgumentError MCBench.reference_value_test([1.0, NaN], 1.0)
+        @test_throws ArgumentError MCBench.reference_value_test([1.0, 2.0], Inf)
     end
 end

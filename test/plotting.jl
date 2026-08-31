@@ -12,7 +12,11 @@
                 "Plot-Test";
                 reference_values=(
                     marginal_mean=0.05,
-                    marginal_quantiles=metric -> collect(metric.probabilities),
+                    marginal_quantiles=metric -> Union{Missing,Float64}[
+                        metric.probabilities[1],
+                        missing,
+                        missing,
+                    ],
                 ),
             )
             metric = MCBench.marginal_mean()
@@ -78,6 +82,19 @@
                 plot_title,
                 "p = $(round(expected_plot_ks.pvalue; sigdigits=4))",
             )
+            expected_reference_test = MCBench.reference_value_test(
+                [-0.1, 0.0, 0.1, 0.2, 0.3],
+                0.05,
+            )
+            @test contains(plot_title, "Reference t-test (Compared):")
+            @test contains(
+                plot_title,
+                "t = $(round(expected_reference_test.statistic; sigdigits=4))",
+            )
+            @test contains(
+                plot_title,
+                "p = $(round(expected_reference_test.pvalue; sigdigits=4))",
+            )
             @test !isfile(comparison_plot)
 
             MCBench.plot_teststatistic(
@@ -86,12 +103,28 @@
                 sampler;
                 nbins=3,
                 show_reference=false,
+                show_reference_test=false,
                 show_ks_test=false,
             )
             @test length(MCBench.Plots.current().series_list) == 2
             @test !contains(
                 string(MCBench.Plots.current()[1][:title]),
                 "KS test:",
+            )
+            @test !contains(
+                string(MCBench.Plots.current()[1][:title]),
+                "Reference t-test",
+            )
+
+            iid_plot_without_reference_test = only(MCBench.plot_teststatistic(
+                testcase,
+                metric;
+                show_reference_test=false,
+                save_plots=false,
+            ))
+            @test !contains(
+                string(iid_plot_without_reference_test[1][:title]),
+                "Reference t-test",
             )
 
             MCBench.plot_metrics(testcase, [metric], sampler; names=["x"])
@@ -146,6 +179,19 @@
                 save_plots=false,
             )
             @test quantile_reference_overview isa MCBench.Plots.Plot
+            @test count(
+                series -> series[:seriestype] == :scatter,
+                quantile_reference_overview.series_list,
+            ) == 1
+
+            quantile_histograms = MCBench.plot_teststatistic(
+                testcase,
+                quantile_metric;
+                save_plots=false,
+            )
+            @test length(quantile_histograms[1].series_list) == 2
+            @test length(quantile_histograms[2].series_list) == 1
+            @test length(quantile_histograms[3].series_list) == 1
 
             # Metrics without a stored reference are silently omitted.
             reference_paths = MCBench.plot_reference_metrics(
@@ -178,18 +224,43 @@
                 series -> series[:seriestype] == :scatter,
                 unsaved_reference_overview.series_list,
             ))
-            @test any(x -> x ≈ 0.05, marker_series[:x])
+            expected_sem = std([-0.1, 0.0, 0.1, 0.2, 0.3]) / sqrt(5)
+            expected_normalized_difference = (0.1 - 0.05) / expected_sem
+            @test only(marker_series[:x]) ≈ expected_normalized_difference
+            @test only(marker_series[:xerror]) == 1.0
             labels = string.(getindex.(unsaved_reference_overview.series_list, :label))
-            @test all(
-                label -> label in labels,
-                ["1σ region", "2σ region", "3σ region"],
-            )
+            @test "Difference ± 1 SEM" in labels
+            @test all(label -> !(label in labels), ["1σ region", "2σ region", "3σ region"])
+            reference_yticks = unsaved_reference_overview[1][:yaxis][:ticks][2]
+            @test only(reference_yticks) ==
+                "Mean(x) (p = $(round(expected_reference_test.pvalue; sigdigits=4)))"
 
             missing_reference = standard_normal_testcase(1; info="Missing-Reference")
             @test_throws ArgumentError MCBench.plot_reference_metrics(
                 missing_reference,
                 [metric],
                 sampler;
+            )
+
+            zero_sem_testcase = MCBench.Testcases(
+                Normal(),
+                bounds,
+                1,
+                "Zero-SEM-Test";
+                reference_values=(marginal_mean=0.0,),
+            )
+            write_lines(
+                joinpath(
+                    "teststatistics_sampler",
+                    "Zero-SEM-Test-Mean-Compared.txt",
+                ),
+                ["[0.1]", "[0.1]", "[0.1]"],
+            )
+            @test_throws ArgumentError MCBench.plot_reference_metrics(
+                zero_sem_testcase,
+                [metric],
+                sampler;
+                save_plots=false,
             )
 
             MCBench.Plots.closeall()

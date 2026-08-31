@@ -26,25 +26,30 @@
             reference_values=(
                 marginal_mean=0.0,
                 marginal_variance=[1.0, 2.0],
+                marginal_skewness=[0.0, missing],
+                marginal_mode=missing,
                 marginal_quantiles=metric -> fill(4.2, 2 * length(metric.probabilities)),
                 wasserstein_1d=0.0,
-                maximum_mean_discrepancy=0.0,
             ),
         )
 
         @test testcase.reference_values.marginal_mean == 0.0
         @test MCBench.reference_values(testcase, MCBench.marginal_mean()) == [0.0, 0.0]
         @test MCBench.reference_values(testcase, MCBench.marginal_variance()) == [1.0, 2.0]
+        @test isequal(
+            MCBench.reference_values(testcase, MCBench.marginal_skewness()),
+            [0.0, missing],
+        )
+        @test isequal(
+            MCBench.reference_values(testcase, MCBench.marginal_mode()),
+            [missing, missing],
+        )
         @test MCBench.reference_values(
             testcase,
             MCBench.marginal_quantiles([0.25, 0.75]),
         ) == fill(4.2, 4)
         @test MCBench.reference_values(testcase, MCBench.wasserstein_1d()) == [0.0, 0.0]
-        @test MCBench.reference_values(
-            testcase,
-            MCBench.maximum_mean_discrepancy(),
-        ) == [0.0]
-        @test isnothing(MCBench.reference_values(testcase, MCBench.marginal_mode()))
+        @test isnothing(MCBench.reference_values(testcase, MCBench.global_mode()))
 
         wrong_dimension = MCBench.Testcases(
             distribution,
@@ -71,6 +76,20 @@
             "Nonfinite-References";
             reference_values=(marginal_mean=Inf,),
         )
+        @test_throws ArgumentError MCBench.Testcases(
+            distribution,
+            bounds,
+            2,
+            "Invalid-Partial-References";
+            reference_values=(marginal_mean=[0.0, "unknown"],),
+        )
+        @test_throws ArgumentError MCBench.Testcases(
+            distribution,
+            bounds,
+            2,
+            "Nonfinite-Partial-References";
+            reference_values=(marginal_mean=[missing, Inf],),
+        )
 
         @test MCBench.reference_values(
             MCBench.normal_3d_uncorrelated,
@@ -82,6 +101,14 @@
         )
         @test normal_quantiles[1:3] ≈ zeros(3) atol=1e-14
         @test normal_quantiles[4:6] ≈ fill(quantile(Normal(), 0.9), 3)
+        @test isnothing(MCBench.reference_values(
+            MCBench.normal_3d_uncorrelated,
+            MCBench.sliced_wasserstein_distance(),
+        ))
+        @test isnothing(MCBench.reference_values(
+            MCBench.normal_3d_uncorrelated,
+            MCBench.maximum_mean_discrepancy(),
+        ))
         @test isnothing(MCBench.reference_values(
             MCBench.cauchy_1d,
             MCBench.marginal_mean(),

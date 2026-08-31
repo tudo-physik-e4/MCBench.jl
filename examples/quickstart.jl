@@ -64,17 +64,6 @@ known_variance = MCBench.reference_values(testcase, variance_metric)
 println("Known target mean: ", known_mean)
 println("Known target variance: ", known_variance)
 
-# Distribution discrepancies are zero when the target is compared with itself.
-# Finite samples fluctuate around these population values, so individual MMD
-# estimates need not be exactly zero.
-known_sliced_wasserstein = MCBench.reference_values(
-    testcase,
-    sliced_wasserstein_metric,
-)
-known_mmd = MCBench.reference_values(testcase, mmd_metric)
-println("Known sliced Wasserstein distance: ", known_sliced_wasserstein)
-println("Known MMD: ", known_mmd)
-
 
 # ---------------------------------------------------------------------------
 # Scenario 1: provided target versus external candidate samples
@@ -194,7 +183,6 @@ p = first(MCBench.plot_teststatistic(
     mmd_metric,
     external_candidate_sampler;
     nbins=8,
-    show_reference=true,
     save_plots=false,
 ))
 savefig(p, scenario_1_plot_dir * "/mmd.pdf")
@@ -212,8 +200,8 @@ savefig(p, scenario_1_plot_dir * "/metrics-overview.pdf")
 savefig(p, scenario_1_plot_dir * "/metrics-overview.png")
 
 # This separate overview keeps only metrics with known reference values. Its
-# points are raw differences from those references. Per-metric background
-# bands show the sampler metric's 1σ, 2σ, and 3σ regions.
+# points are differences from those references normalized by their standard
+# errors across benchmark repetitions. Every horizontal error bar spans ±1 SEM.
 p = MCBench.plot_reference_metrics(
     testcase,
     metrics,

@@ -12,7 +12,7 @@
 # The paper configuration is computationally expensive, particularly for MMD.
 # Both modes generate the same figures below `examples/paper_section_6_1_output`.
 # In addition to the original paper figures, the script demonstrates quantiles,
-# analytical reference-value plots, and both forms of the numerical summary.
+# analytical reference-value plots, and a combined numerical summary.
 
 using Random
 
@@ -26,15 +26,16 @@ import MCBench
 # Configuration
 # ---------------------------------------------------------------------------
 
-paper_run = "--paper" in ARGS
+paper_run = true# "--paper" in ARGS
 seed = 6101
 
 # Section 6.1 uses 50 independent metric values, each calculated from a batch
 # of 100,000 samples. The preview keeps the workflow identical but much smaller.
-n_repetitions = paper_run ? 50 : 3
+n_repetitions = paper_run ? 20 : 3
 samples_per_repetition = paper_run ? 100_000 : 200
 mh_steps = paper_run ? 100_000 : 500
 mh_chains = paper_run ? 10 : 2
+ess_pilot_runs = paper_run ? 5 : 1
 
 # The metric constructors cap the number of points used by the expensive
 # two-sample distances. No overrides are used in paper mode.
@@ -133,22 +134,12 @@ savefig(p, output_root * "/figure-2a-x1-marginal.png")
 # Generate the repeated metric distributions
 # ---------------------------------------------------------------------------
 
-# First generate the IID reference distributions for all four metrics.
+# A sampler build with `unweight=true` (the default) keeps every BAT-MH draw
+# intact and creates the IID comparison using a fixed size selected from the
+# smallest autocorrelation ESS across its five dimensions in preliminary
+# draws. The call therefore writes both statistic distributions and the ESS of
+# every benchmark repetition.
 Random.seed!(seed + 1)
-MCBench.build_teststatistic(
-    testcase,
-    metrics;
-    n=n_repetitions,
-    n_steps=samples_per_repetition,
-    n_samples=samples_per_repetition,
-    par=false,
-    clean=true,
-    use_sampler=false,
-    verbose=true,
-)
-
-# Then generate the corresponding distributions with BAT-MH. `use_sampler=true`
-# uses the `n_steps` and `nchains` stored in `sampler` above.
 MCBench.build_teststatistic(
     testcase,
     metrics;
@@ -158,8 +149,14 @@ MCBench.build_teststatistic(
     par=false,
     clean=true,
     use_sampler=true,
+    ess_pilot_runs=ess_pilot_runs,
     verbose=true,
 )
+
+effective_sample_sizes = MCBench.read_effective_sample_sizes(testcase, sampler)
+matched_iid_size = MCBench.read_matched_iid_sample_size(testcase, sampler)
+println("BAT-MH effective sample sizes: ", effective_sample_sizes)
+println("Matched IID sample size: ", matched_iid_size)
 
 
 # ---------------------------------------------------------------------------
@@ -308,9 +305,11 @@ savefig(p, output_root * "/additional-quantile-90-x1.png")
 # Additional MCBench output: analytical reference values
 # ---------------------------------------------------------------------------
 
-# The testcase stores analytical means and variances. Distribution distances
-# have the population reference zero. The nonlinear marginal quantiles do not
-# have simple analytical values, so MCBench omits them from this reference plot.
+# The testcase stores analytical means and variances. Exact quantile references
+# are included wherever available: all medians and the 90% and 99% quantiles of
+# normal x1. SWD and MMD are omitted because their ideal score of zero is not a
+# target-distribution reference value. Other individual outputs without a
+# reference are omitted as well.
 p = MCBench.plot_reference_metrics(
     testcase,
     metrics,
@@ -320,9 +319,9 @@ p = MCBench.plot_reference_metrics(
 )
 plot!(
     p;
-    title="BAT-MH vs. analytical reference values",
+    title="BAT-MH vs. reference values",
     legend=:outertopright,
-    size=(900, 460),
+    size=(900, 670),
     left_margin=13Plots.mm,
     right_margin=8Plots.mm,
     bottom_margin=8Plots.mm,
@@ -335,25 +334,17 @@ savefig(p, output_root * "/additional-reference-metrics.png")
 # Numerical summaries
 # ---------------------------------------------------------------------------
 
-# The IID comparison includes every metric, including all quantiles, together
-# with the KS statistic and p-value for each empirical distribution.
+# This single table includes every metric, all quantile rows, the empirical IID
+# comparison, and every available analytical reference value. A dash in the
+# Reference column means that this particular metric output has no analytical
+# value, while other outputs of the same metric can still show one.
 println()
 MCBench.print_metric_summary(
     testcase,
     metrics,
     sampler;
     names=parameter_names,
-)
-
-# Reference mode reports the direct difference from each available analytical
-# value. Metrics without a reference, here the quantiles, are skipped.
-println()
-MCBench.print_metric_summary(
-    testcase,
-    metrics,
-    sampler;
-    names=parameter_names,
-    comparison=:reference,
+    include_reference=true,
 )
 
 println()

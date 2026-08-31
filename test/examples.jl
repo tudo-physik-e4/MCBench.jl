@@ -13,7 +13,7 @@
     @test Meta.parseall(paper_example) isa Expr
     @test contains(paper_example, "marginal_quantiles()")
     @test contains(paper_example, "plot_reference_metrics")
-    @test contains(paper_example, "comparison=:reference")
+    @test contains(paper_example, "include_reference=true")
 
     include(joinpath(@__DIR__, "..", "examples", "basic_metrics.jl"))
     basic_result = BasicMetricsExample.main(n_samples=200, seed=77, verbose=false)

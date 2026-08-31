@@ -107,19 +107,40 @@ end
 
 get_effective_sample_size(dsv::DensitySampleVector, ::Int) = get_effective_sample_size(dsv)
 
+function _minimum_effective_sample_size(result)
+    result isa Real && return Float64(result)
+    if result isa NamedTuple
+        values_by_dimension = Iterators.flatten(
+            value isa Real ? (value,) : value for value in values(result)
+        )
+        return Float64(minimum(values_by_dimension))
+    end
+    Float64(minimum(result))
+end
+
+"""
+    get_effective_sample_size(samples, sampler)
+
+Return a conservative scalar effective sample size for `samples`. IID
+samplers use the weight-based Kish ESS. Other sampling algorithms use BAT's
+autocorrelation estimate and return the smallest ESS across dimensions.
+"""
+function get_effective_sample_size(
+    dsv::DensitySampleVector,
+    ::IIDSamplingAlgorithm,
+)
+    get_effective_sample_size(dsv)
+end
+
 function get_effective_sample_size(
     dsv::DensitySampleVector,
     ::SamplingAlgorithm,
 )
-    result = BAT.bat_eff_sample_size(dsv, BAT.KishESS()).result
-    result isa Real && return result
-    if result isa NamedTuple
-        flattened = Iterators.flatten(
-            value isa Real ? (value,) : value for value in values(result)
-        )
-        return minimum(flattened)
-    end
-    minimum(result)
+    result = BAT.bat_eff_sample_size(
+        dsv,
+        BAT.EffSampleSizeFromAC(),
+    ).result
+    _minimum_effective_sample_size(result)
 end
 
 """Whether at least one sample has a weight other than one."""

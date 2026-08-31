@@ -28,8 +28,9 @@
 # Shared construction helpers
 # ---------------------------------------------------------------------------
 
-# Population discrepancies are zero when a distribution is compared with
-# itself. Their empirical estimates from two finite samples will still vary.
+# Store analytical properties of the target itself. The ideal zero scores of
+# multivariate two-sample comparisons such as SWD and MMD are intentionally not
+# treated as target reference values.
 function _normal_reference_values(dim::Int)
     (
         marginal_mean=zeros(dim),
@@ -44,8 +45,6 @@ function _normal_reference_values(dim::Int)
             for _ in 1:dim
         ],
         wasserstein_1d=zeros(dim),
-        sliced_wasserstein_distance=0.0,
-        maximum_mean_discrepancy=0.0,
     )
 end
 
@@ -56,8 +55,6 @@ function _moment_reference_values(distribution)
         marginal_mean=distribution_mean,
         marginal_variance=Distributions.var(distribution),
         wasserstein_1d=zeros(dim),
-        sliced_wasserstein_distance=0.0,
-        maximum_mean_discrepancy=0.0,
     )
 end
 

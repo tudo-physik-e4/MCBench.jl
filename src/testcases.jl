@@ -11,17 +11,21 @@ abstract type AbstractTestcase end
 
 const _EMPTY_REFERENCE_VALUES = NamedTuple()
 
+_is_reference_element(value) = value isa Real || ismissing(value)
+
 function _validate_reference_values(values)
     values isa NamedTuple || throw(ArgumentError("reference_values must be a NamedTuple"))
 
     for (name, value) in pairs(values)
-        valid = value isa Real || value isa AbstractVector{<:Real} || value isa Function
+        valid = _is_reference_element(value) || value isa Function ||
+            (value isa AbstractVector && all(_is_reference_element, value))
         valid || throw(ArgumentError(
-            "reference value :$name must be numeric, a numeric vector, or a function",
+            "reference value :$name must be numeric, missing, a vector of numeric or missing values, or a function",
         ))
         value isa Function && continue
-        all(isfinite, value isa Real ? (value,) : value) || throw(ArgumentError(
-            "reference value :$name must contain only finite numbers",
+        elements = value isa AbstractVector ? value : (value,)
+        all(element -> ismissing(element) || isfinite(element), elements) || throw(ArgumentError(
+            "reference value :$name must contain only finite numbers or missing",
         ))
     end
 
@@ -49,9 +53,10 @@ Testcases(
 )
 ```
 
-Scalars may be used when all dimensions share the same reference value. For a
-configurable metric, an entry may instead be a function that receives the
-metric and returns its matching scalar or vector.
+Scalars may be used when all dimensions share the same reference value. Use
+`missing` inside a vector when references are known for only some metric
+outputs. For a configurable metric, an entry may instead be a function that
+receives the metric and returns its matching scalar or vector.
 """
 struct Testcases{
     D<:Union{Distribution,Target},

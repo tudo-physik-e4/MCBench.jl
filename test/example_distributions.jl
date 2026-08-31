@@ -46,9 +46,26 @@
         easy_mean = MCBench.reference_values(easy, MCBench.marginal_mean())
         hard_mean = MCBench.reference_values(hard, MCBench.marginal_mean())
         easy_variance = MCBench.reference_values(easy, MCBench.marginal_variance())
+        easy_quantiles = MCBench.reference_values(easy, MCBench.marginal_quantiles())
+        hard_quantiles = MCBench.reference_values(hard, MCBench.marginal_quantiles())
         @test easy_mean ≈ zeros(5) atol=1e-14
         @test hard_mean[1] ≈ -3.2
         @test all(>(0), easy_variance)
+        @test easy_quantiles[1:5] ≈ zeros(5) atol=1e-14
+        @test easy_quantiles[6] ≈ quantile(Normal(0, easy_params.σ1), 0.9)
+        @test all(ismissing, easy_quantiles[7:10])
+        @test easy_quantiles[11] ≈ quantile(Normal(0, easy_params.σ1), 0.99)
+        @test all(ismissing, easy_quantiles[12:15])
+        @test isequal(hard_quantiles[1:5], [missing, missing, missing, 0.0, 0.0])
+        @test all(ismissing, hard_quantiles[6:15])
+        @test isnothing(MCBench.reference_values(
+            easy,
+            MCBench.sliced_wasserstein_distance(),
+        ))
+        @test isnothing(MCBench.reference_values(
+            easy,
+            MCBench.maximum_mean_discrepancy(),
+        ))
 
         testcase_samples = MCBench.sample(easy, 10)
         @test length(testcase_samples) == 10

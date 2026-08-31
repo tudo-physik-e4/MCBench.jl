@@ -132,4 +132,135 @@
             end
         end
     end
+
+    @testset "ESS-aware sampler batching" begin
+        mktempdir() do dir
+            cd(dir) do
+                testcase = standard_normal_testcase(1; info="ESS-Batching-Test")
+                count_metric = SampleCountMetric()
+                two_sample_metric = TwoSampleCountMetric()
+
+                # Each complete sampler draw is preserved. Its conservative
+                # ESS of two sets the size of that repetition's IID samples.
+                sampler = FixedEffectiveSampleSizeSampler(7, 2.0, 0, "ESS-Sampler")
+                MCBench.build_teststatistic(
+                    testcase,
+                    MCBench.TestMetric[count_metric, two_sample_metric];
+                    s=sampler,
+                    n=2,
+                    n_steps=7,
+                    n_samples=5,
+                    unweight=true,
+                    use_sampler=false,
+                    ess_pilot_runs=1,
+                    par=false,
+                    clean=true,
+                )
+
+                sampler_counts = MCBench.read_teststatistic(
+                    testcase,
+                    count_metric,
+                    sampler,
+                )
+                iid_counts = MCBench.read_teststatistic(testcase, count_metric)
+                sampler_two_sample_counts = MCBench.read_teststatistic(
+                    testcase,
+                    two_sample_metric,
+                    sampler,
+                )
+                iid_two_sample_counts = MCBench.read_teststatistic(
+                    testcase,
+                    two_sample_metric,
+                )
+
+                @test sampler_counts == fill(7.0, 1, 2)
+                @test iid_counts == fill(2.0, 1, 2)
+                @test sampler_two_sample_counts == fill(2_007.0, 1, 2)
+                @test iid_two_sample_counts == fill(2_002.0, 1, 2)
+                @test MCBench.read_effective_sample_sizes(testcase, sampler) == [2, 2]
+                @test MCBench.read_matched_iid_sample_size(testcase, sampler) == 2
+                @test sampler.draw_count == 3
+
+                # Appending extends sampler, IID, and ESS outputs together.
+                MCBench.build_teststatistic(
+                    testcase,
+                    [count_metric];
+                    s=sampler,
+                    n=1,
+                    n_steps=7,
+                    n_samples=5,
+                    unweight=true,
+                    use_sampler=false,
+                    ess_pilot_runs=1,
+                    par=false,
+                    clean=false,
+                )
+                @test size(MCBench.read_teststatistic(
+                    testcase,
+                    count_metric,
+                    sampler,
+                )) == (1, 3)
+                @test size(MCBench.read_teststatistic(testcase, count_metric)) == (1, 3)
+                @test MCBench.read_effective_sample_sizes(testcase, sampler) == [2, 2, 2]
+                @test sampler.draw_count == 4
+
+                # Disabling unweighting restores raw-sample batching.
+                raw_sampler = FixedEffectiveSampleSizeSampler(7, 2.0, 0, "Raw-Sampler")
+                MCBench.build_teststatistic(
+                    testcase,
+                    [count_metric];
+                    s=raw_sampler,
+                    n=2,
+                    n_steps=7,
+                    n_samples=5,
+                    unweight=false,
+                    use_sampler=false,
+                    par=false,
+                    clean=true,
+                )
+
+                raw_values = MCBench.read_teststatistic(
+                    testcase,
+                    count_metric,
+                    raw_sampler,
+                )
+                @test raw_values == fill(5.0, 1, 2)
+                @test raw_sampler.draw_count == 2
+
+                # Do not silently append an ESS-matched IID distribution to a
+                # legacy baseline that used a different sample size.
+                legacy_testcase = standard_normal_testcase(
+                    1;
+                    info="Legacy-IID-Baseline-Test",
+                )
+                MCBench.build_teststatistic(
+                    legacy_testcase,
+                    [count_metric];
+                    n=1,
+                    n_steps=5,
+                    n_samples=5,
+                    use_sampler=false,
+                    par=false,
+                    clean=true,
+                )
+                legacy_sampler = FixedEffectiveSampleSizeSampler(
+                    7,
+                    2.0,
+                    0,
+                    "Legacy-Sampler",
+                )
+                @test_throws ArgumentError MCBench.build_teststatistic(
+                    legacy_testcase,
+                    [count_metric];
+                    s=legacy_sampler,
+                    n=1,
+                    n_steps=7,
+                    use_sampler=false,
+                    par=false,
+                    clean=false,
+                )
+                @test legacy_sampler.draw_count == 0
+            end
+        end
+    end
 end

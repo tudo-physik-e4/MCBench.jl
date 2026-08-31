@@ -44,8 +44,6 @@ Standard_Normal_3D_Uncorrelated = Testcases(
     reference_values=(
         marginal_mean=zeros(3),
         marginal_variance=ones(3),
-        sliced_wasserstein_distance=0.0,
-        maximum_mean_discrepancy=0.0,
     ),
 )
  ```
@@ -79,6 +77,15 @@ and repetitions sequential. `use_sampler=true` uses the draw configuration
 stored in `s`; set `use_sampler=false` to forward the supplied `n_steps` to
 each sampling call. The sampler `s` is used in either case.
 
+For a non-IID `SamplingAlgorithm` such as `BATMH`, the default
+`unweight=true` enables ESS matching. Each sampler draw is kept intact, its
+smallest autocorrelation ESS across dimensions is recorded, and the same call
+rebuilds the IID statistic distribution using a fixed size selected from short
+ESS pilot runs. Use `read_effective_sample_sizes(testcase, sampler)` and
+`read_matched_iid_sample_size(testcase, sampler)` to inspect both values.
+External file-based samplers continue to use the explicit two-call workflow
+above.
+
 ### Generating text summaries
 
 The persisted comparison can also be inspected as a table of unnormalized
@@ -90,15 +97,20 @@ print_metric_summary(
     Standard_Normal_3D_Uncorrelated,
     metrics,
     sampler;
-    comparison=:reference,
+    include_reference=true,
 )
 ```
 
 The default IID table reports sampler and IID means and standard deviations,
 their raw difference, the normalized value used by `plot_metrics`, and the
-two-sample Kolmogorov-Smirnov statistic with its p-value.
-Reference mode keeps metrics with known values and reports their raw difference
-plus the number of sampler standard deviations from the reference.
+two-sample Kolmogorov-Smirnov statistic with its p-value. With
+`include_reference=true`, it also shows the available testcase references and
+uses a dash for individual metric outputs without one. Partial reference
+vectors may contain `missing`, allowing known dimensions or quantiles to remain
+visible even when other outputs of the same metric have no analytical value.
+`comparison=:reference` instead keeps only outputs with known values and
+reports their raw difference plus the number of sampler standard deviations
+from the reference.
 
 ### Generating comparison plots
 - Overview plot of all selected metrics
@@ -121,11 +133,15 @@ plot_teststatistic(Standard_Normal_3D_Uncorrelated, marginal_mean(), sampler; nb
 Known population values are stored once on the testcase. Individual plots show
 them as dashed reference lines by default; pass `show_reference=false` to hide
 them. Sampler-versus-IID histograms also report the KS statistic and p-value in
-their title; pass `show_ks_test=false` to hide this annotation. `plot_metrics`
-retains the historical IID-centered normalization.
+their title. When a reference is available, the title additionally reports a
+two-sided one-sample t-test against that value. Pass `show_ks_test=false` or
+`show_reference_test=false` to hide the corresponding annotation.
+`plot_metrics` retains the historical IID-centered normalization.
 `plot_reference_metrics` skips metrics without known values and plots each
-remaining mean minus its reference value. Per-metric green, yellow, and red
-background bands show the 1σ, 2σ, and 3σ sampler regions.
+remaining mean minus its reference value, normalized by the metric's standard
+error across benchmark repetitions. Thus the black point is
+`(mean(metric) - reference) / SEM(metric)`, and its horizontal error bar spans
+±1 SEM. Each row label shows the associated reference-test p-value.
 
 ### Runnable examples
 

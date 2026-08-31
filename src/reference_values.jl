@@ -6,9 +6,10 @@ Return the known population values attached to `testcase` for `metric`, or
 
 Reference keys match metric type names. For example, `marginal_mean()` reads
 the `:marginal_mean` entry. A scalar is broadcast to the metric's output
-dimension; vectors must already have the expected length. Configurable metrics
-may store a function that accepts the metric and returns the corresponding
-scalar or vector.
+dimension; vectors must already have the expected length and may use `missing`
+for individual outputs without a known reference. Configurable metrics may
+store a function that accepts the metric and returns the corresponding scalar
+or vector.
 """
 function reference_values(testcase::AbstractTestcase, metric::TestMetric)
     hasproperty(testcase, :reference_values) || return nothing
@@ -21,12 +22,18 @@ function reference_values(testcase::AbstractTestcase, metric::TestMetric)
     stored_value = getproperty(stored_values, key)
     raw_value = stored_value isa Function ? stored_value(metric) : stored_value
     isnothing(raw_value) && return nothing
-    raw_value isa Real || raw_value isa AbstractVector{<:Real} || throw(ArgumentError(
-        "reference function :$key must return a real number, a real vector, or nothing",
+    valid = _is_reference_element(raw_value) ||
+        (raw_value isa AbstractVector && all(_is_reference_element, raw_value))
+    valid || throw(ArgumentError(
+        "reference function :$key must return a real number, missing, a vector of real or missing values, or nothing",
     ))
-    values = raw_value isa Real ?
-        fill(Float64(raw_value), expected_length) :
-        Float64.(collect(raw_value))
+    values = if raw_value isa Real
+        fill(Float64(raw_value), expected_length)
+    elseif ismissing(raw_value)
+        fill(missing, expected_length)
+    else
+        map(value -> ismissing(value) ? missing : Float64(value), collect(raw_value))
+    end
 
     length(values) == expected_length || throw(DimensionMismatch(
         "reference value :$key has length $(length(values)); expected $expected_length",

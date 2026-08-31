@@ -48,6 +48,18 @@
         @test MCBench.get_effective_sample_size(unweighted) ≈ 4.0
         @test MCBench.get_effective_sample_size(unweighted, 1) ≈ 4.0
         @test MCBench.get_effective_sample_size(unweighted, MCBench.IIDSampler()) ≈ 4.0
+
+        Random.seed!(123)
+        correlated = MCBench.make_dsv(cumsum(randn(2_000)))
+        correlated_ess = MCBench.get_effective_sample_size(
+            correlated,
+            AutocorrelationESSSampler("Autocorrelation-ESS"),
+        )
+        @test 1 <= correlated_ess < 100
+        @test length(MCBench.resample_dsv_to_ess(
+            correlated,
+            AutocorrelationESSSampler("Autocorrelation-ESS"),
+        )) == floor(Int, correlated_ess)
     end
 
     @testset "condensing and resampling" begin

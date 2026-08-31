@@ -19,6 +19,7 @@ function _add_reference_line!(plot_object, testcase, metric, dim; show_reference
     isnothing(references) && return nothing
 
     value = references[dim]
+    ismissing(value) && return nothing
     vline!(
         plot_object,
         [value];
@@ -30,19 +31,39 @@ function _add_reference_line!(plot_object, testcase, metric, dim; show_reference
     nothing
 end
 
+function _metric_reference(testcase, metric, dim)
+    references = reference_values(testcase, metric)
+    isnothing(references) && return nothing
+    value = references[dim]
+    ismissing(value) ? nothing : value
+end
+
 function _ks_plot_label(result)
     statistic = round(result.statistic; sigdigits=4)
     probability = round(result.pvalue; sigdigits=4)
     "KS test: D = $statistic, p = $probability"
 end
 
+function _reference_plot_label(values, reference; source="")
+    result = reference_value_test(values, reference)
+    statistic = round(result.statistic; sigdigits=4)
+    probability = round(result.pvalue; sigdigits=4)
+    source_suffix = isempty(source) ? "" : " ($source)"
+    "Reference t-test$source_suffix: t = $statistic, p = $probability"
+end
+
 """
     plot_teststatistic(testcase, metric;
-                       nbins=32, show_reference=true, save_plots=true)
+                       nbins=32, show_reference=true,
+                       show_reference_test=true, save_plots=true)
 
 Plot the IID test-statistic distribution for each metric output dimension. If
 the testcase contains a matching reference value, it is drawn as a dashed
 vertical line. Returns the paths of the generated PDF files.
+
+When a reference is available, the title also shows the two-sided one-sample
+t-test p-value for the repeated IID metric values. Disable this annotation with
+`show_reference_test=false`.
 
 Set `save_plots=false` to return the plot objects without writing files. This
 is useful when callers want to customize or explicitly save each plot.
@@ -52,6 +73,7 @@ function plot_teststatistic(
     metric::TestMetric;
     nbins::Int=32,
     show_reference::Bool=true,
+    show_reference_test::Bool=true,
     save_plots::Bool=true,
 )
     values = read_teststatistic(testcase, metric)
@@ -62,11 +84,16 @@ function plot_teststatistic(
     plot_objects = Plots.Plot[]
 
     for dim in 1:dimensions
+        title = _metric_title(testcase, metric, dim)
+        reference = _metric_reference(testcase, metric, dim)
+        if show_reference_test && !isnothing(reference)
+            title *= "\n" * _reference_plot_label(values[dim, :], reference; source="IID")
+        end
         metric_plot = histogram(
             values[dim, :];
             bins=nbins,
             st=:stephist,
-            title=_metric_title(testcase, metric, dim),
+            title=title,
             xlabel=metric.info,
             ylabel="Entries",
             label="IID, n = $(size(values, 2))",
@@ -99,14 +126,17 @@ end
 """
     plot_teststatistic(testcase, metric, sampler;
                        nbins=32, same_bins=true, sampler_bins=false,
-                       show_reference=true, show_ks_test=true,
+                       show_reference=true, show_reference_test=true,
+                       show_ks_test=true,
                        save_plots=true)
 
 Compare IID and sampler test-statistic distributions. Reference values stored
 on the testcase are shown by default. The title reports the two-sample KS
 statistic and p-value calculated from the unbinned values; disable this with
-`show_ks_test=false`. Returns the generated PDF paths. With `save_plots=false`,
-returns the unsaved plot objects instead.
+`show_ks_test=false`. If a stored reference is available, the title separately
+reports a one-sample t-test of the sampler repetitions against it; disable this
+with `show_reference_test=false`. Returns the generated PDF paths. With
+`save_plots=false`, returns the unsaved plot objects instead.
 """
 function plot_teststatistic(
     testcase::AbstractTestcase,
@@ -116,6 +146,7 @@ function plot_teststatistic(
     same_bins::Bool=true,
     sampler_bins::Bool=false,
     show_reference::Bool=true,
+    show_reference_test::Bool=true,
     show_ks_test::Bool=true,
     save_plots::Bool=true,
 )
@@ -151,6 +182,10 @@ function plot_teststatistic(
         title = _metric_title(testcase, metric, dim)
         if show_ks_test
             title *= "\n$(_ks_plot_label(ks_test(iid_row, sampler_row)))"
+        end
+        reference = _metric_reference(testcase, metric, dim)
+        if show_reference_test && !isnothing(reference)
+            title *= "\n$(_reference_plot_label(sampler_row, reference; source=string(sampler.info)))"
         end
 
         metric_plot = plot(
@@ -361,52 +396,6 @@ function plot_metrics(
     )
 end
 
-function _draw_reference_band!(plot_object, lower, upper, y, color, label)
-    half_height = 12
-    plot!(
-        plot_object,
-        [lower, upper],
-        fill(y + half_height, 2);
-        fillrange=fill(y - half_height, 2),
-        color=color,
-        fillalpha=0.2,
-        linewidth=0,
-        label=label,
-    )
-end
-
-function _draw_reference_bands!(overview_plot, row, y, show_labels)
-    sigma = row.std
-    # Each metric remains in its native units, so every row needs its own
-    # reference-centered sigma bands.
-    _draw_reference_band!(overview_plot, -3sigma, -2sigma, y, :red, "")
-    _draw_reference_band!(
-        overview_plot,
-        2sigma,
-        3sigma,
-        y,
-        :red,
-        show_labels ? "3σ region" : "",
-    )
-    _draw_reference_band!(overview_plot, -2sigma, -sigma, y, :yellow, "")
-    _draw_reference_band!(
-        overview_plot,
-        sigma,
-        2sigma,
-        y,
-        :yellow,
-        show_labels ? "2σ region" : "",
-    )
-    _draw_reference_band!(
-        overview_plot,
-        -sigma,
-        sigma,
-        y,
-        :green,
-        show_labels ? "1σ region" : "",
-    )
-end
-
 function _plot_reference_metrics(
     testcase::AbstractTestcase,
     reference_values_to_plot::AbstractVector{<:NamedTuple},
@@ -416,34 +405,39 @@ function _plot_reference_metrics(
     rows = reverse(reference_values_to_plot)
     plot_height = length(rows) * 30
     y_values = [10 + 30 * (index - 1) for index in eachindex(rows)]
-    max_x = maximum(abs(row.val) + 3 * row.std for row in rows)
+    max_x = maximum(abs(row.val) + row.error for row in rows)
     x_padding = iszero(max_x) ? 1.0 : 0.05 * max_x
 
     overview_plot = plot(
         (0, 0);
-        size=(550, plot_height + 100),
+        size=(650, plot_height + 100),
         legend=:topleft,
         xlims=(-max_x - x_padding, max_x + x_padding),
         label="",
         bottom_margin=3Plots.mm,
-        left_margin=10Plots.mm,
+        left_margin=16Plots.mm,
         framestyle=:box,
         dpi=400,
     )
-    xlabel!(overview_plot, "mean(metric) - reference value")
+    xlabel!(overview_plot, "(mean(metric) - reference value) / SEM(metric)")
 
-    for (index, (row, y)) in enumerate(zip(rows, y_values))
-        _draw_reference_bands!(overview_plot, row, y, index == 1)
-    end
     vline!(overview_plot, [0]; color=:black, linestyle=:dash, label="Reference")
-    for (row, y) in zip(rows, y_values)
-        scatter!(overview_plot, (row.val, y); color=:black, label="")
+    for (index, (row, y)) in enumerate(zip(rows, y_values))
+        scatter!(
+            overview_plot,
+            [row.val],
+            [y];
+            xerror=[row.error],
+            color=:black,
+            markerstrokecolor=:black,
+            label=index == 1 ? "Difference ± 1 SEM" : "",
+        )
     end
 
     yticks!(
         overview_plot,
         y_values,
-        [row.name for row in rows];
+        ["$(row.name) (p = $(round(row.pvalue; sigdigits=4)))" for row in rows];
         ylims=(-10, plot_height + 10),
     )
     title!(overview_plot, "$(testcase.info)-$(sampler.info) reference values")
@@ -467,14 +461,21 @@ end
                            names=[], save_plots=true)
 
 Plot the selected metrics for which the testcase defines reference values.
-Each point is `mean(sampler metric) - reference value`, in the metric's native
-units. Per-metric background bands show the 1σ, 2σ, and 3σ regions around the
-reference, where σ is the standard deviation of that sampler metric across
-benchmark repetitions.
+Each point is the reference difference normalized to the standard error of the
+mean across benchmark repetitions:
 
-Metrics without reference values are skipped. An `ArgumentError` is raised if
-none of the selected metrics has a reference value. By default, the plot is
-saved as PDF and PNG; use `save_plots=false` to return the plot object instead.
+`(mean(sampler metric) - reference value) / SEM(sampler metric)`.
+
+Here `SEM = std(sampler metric) / sqrt(n_repetitions)`, so every horizontal
+error bar spans ±1 in normalized SEM units. At least two repetitions and a
+positive finite SEM are required. Each row label reports the two-sided
+one-sample t-test p-value for agreement with its reference. These p-values are
+not adjusted for the number of displayed metrics.
+
+Metric outputs without reference values are skipped individually. An
+`ArgumentError` is raised if none of the selected outputs has a reference
+value. By default, the plot is saved as PDF and PNG; use `save_plots=false` to
+return the plot object instead.
 """
 function plot_reference_metrics(
     testcase::AbstractTestcase,
@@ -492,17 +493,30 @@ function plot_reference_metrics(
     for metric in metrics
         references = reference_values(testcase, metric)
         isnothing(references) && continue
+        all(ismissing, references) && continue
 
         sampler_values = read_teststatistic(testcase, metric, sampler)
         dimensions = _validate_statistic_dimensions(testcase, metric, sampler_values)
         labels = metric_output_labels(testcase, metric; names=names)
 
         for dim in 1:dimensions
+            ismissing(references[dim]) && continue
             sampler_row = sampler_values[dim, :]
+            repetitions = length(sampler_row)
+            repetitions > 1 || throw(ArgumentError(
+                "at least two repetitions are required to estimate the standard error for $(labels[dim])",
+            ))
+            standard_error = std(sampler_row) / sqrt(repetitions)
+            numerical_scale = max(1.0, maximum(abs, sampler_row))
+            minimum_sem = eps(Float64) * numerical_scale
+            isfinite(standard_error) && standard_error > minimum_sem || throw(ArgumentError(
+                "cannot normalize $(labels[dim]) because its standard error is not positive, finite, and distinguishable from zero",
+            ))
             push!(values_to_plot, (
                 name=labels[dim],
-                val=mean(sampler_row) - references[dim],
-                std=std(sampler_row),
+                val=(mean(sampler_row) - references[dim]) / standard_error,
+                error=1.0,
+                pvalue=reference_value_test(sampler_row, references[dim]).pvalue,
             ))
         end
     end

@@ -239,6 +239,42 @@ function _normal_mixture_sine_second_moment(params, frequency)
     )
 end
 
+function _nonlinear_quantile_reference_values(params, metric)
+    references = Union{Missing,Float64}[
+        missing
+        for _ in metric.probabilities
+        for _ in 1:5
+    ]
+
+    for (probability_index, probability) in enumerate(metric.probabilities)
+        offset = (probability_index - 1) * 5
+
+        # In the unimodal scenario x1 is exactly Normal(0, sigma1), so all of
+        # its population quantiles are available analytically.
+        if iszero(params.mode_sep1)
+            references[offset + 1] = Distributions.quantile(
+                Normal(0.0, params.σ1),
+                probability,
+            )
+        end
+
+        if probability == 0.5
+            # With a symmetric x1, the x2 and x3 marginals are also symmetric.
+            if iszero(params.mode_sep1)
+                references[offset + 2] = 0.0
+                references[offset + 3] = 0.0
+            end
+
+            # x4 is a zero-centered Laplace scale mixture. The complementary
+            # x5 mixture weights likewise make its marginal symmetric.
+            references[offset + 4] = 0.0
+            references[offset + 5] = 0.0
+        end
+    end
+
+    references
+end
+
 function _nonlinear_reference_values(params::NonlinearMixtureLaplaceTParams)
     mean1 = (2 * params.mix_p1 - 1) * params.mode_sep1
     variance1 = params.σ1^2 + params.mode_sep1^2 - mean1^2
@@ -274,9 +310,9 @@ function _nonlinear_reference_values(params::NonlinearMixtureLaplaceTParams)
     (
         marginal_mean=[mean1, mean2, mean3, 0.0, 0.0],
         marginal_variance=[variance1, variance2, variance3, variance4, variance5],
+        marginal_quantiles=metric ->
+            _nonlinear_quantile_reference_values(params, metric),
         wasserstein_1d=zeros(5),
-        sliced_wasserstein_distance=0.0,
-        maximum_mean_discrepancy=0.0,
     )
 end
 

@@ -25,8 +25,6 @@ Standard_Normal_3D_Uncorrelated = Testcases(
     reference_values=(
         marginal_mean=zeros(3),
         marginal_variance=ones(3),
-        sliced_wasserstein_distance=0.0,
-        maximum_mean_discrepancy=0.0,
     ),
 )
 ```
@@ -74,6 +72,16 @@ When `n_samples` is positive, MCBench collects sampler draws until it can form
 a batch of exactly that size. Remaining samples are kept for the next
 repetition. Set `n_samples <= 0` to evaluate one complete draw per repetition.
 
+There is one intentional exception. For a non-IID `SamplingAlgorithm`, such
+as `BATMH`, `unweight=true` enables ESS matching: every complete sampler draw
+is retained and MCBench calculates the smallest autocorrelation ESS across its
+dimensions. The same call writes the matched IID statistic distribution. Its
+fixed batch size is the median of the minimum ESS values from
+`ess_pilot_runs` preliminary draws. Inspect the actual repetition ESS values
+with `read_effective_sample_sizes(testcase, sampler)` and the fixed size with
+`read_matched_iid_sample_size(testcase, sampler)`. Set `unweight=false` to use
+ordinary raw-sample batching instead.
+
 ## Generating text summaries
 
 Use the text summary to inspect the numbers behind the overview plots:
@@ -119,7 +127,11 @@ The individual plot automatically includes the known mean as a dashed line.
 Use `show_reference=false` when the line is not wanted. `plot_metrics` uses the
 historical `(mean(metric) - mean(IID metric)) / std(IID metric)` normalization.
 Sampler-versus-IID histogram titles show the KS statistic and p-value computed
-from the unbinned values; use `show_ks_test=false` to hide them.
-`plot_reference_metrics` plots unnormalized differences from known values and
-uses per-metric background bands for the sampler metric's 1σ, 2σ, and 3σ
-regions.
+from the unbinned values. When a reference is stored, they separately show the
+two-sided one-sample t-test against it; use `show_ks_test=false` or
+`show_reference_test=false` to hide the corresponding annotation.
+`plot_reference_metrics` normalizes every difference from a known value by its
+standard error across benchmark repetitions. Each black point is
+`(mean(metric) - reference) / SEM(metric)`, and its horizontal error bar spans
+±1 SEM on that normalized scale. The row label reports the associated
+reference-test p-value.
