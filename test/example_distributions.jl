@@ -1,4 +1,23 @@
 @testset "Built-in example distributions" begin
+    @testset "Gaussian analytic reference distributions" begin
+        for (testcase, dimension) in (
+            (MCBench.normal_1d_uncorrelated, 1),
+            (MCBench.normal_3d_uncorrelated, 3),
+            (MCBench.normal_10d_strongly_correlated, 10),
+        )
+            reference = MCBench.reference_distribution(
+                testcase,
+                :squared_mahalanobis,
+            )
+            @test reference isa MCBench.AnalyticReferenceDistribution
+            @test reference.distribution == Chisq(dimension)
+        end
+        @test isnothing(MCBench.reference_distribution(
+            MCBench.cauchy_1d,
+            :squared_mahalanobis,
+        ))
+    end
+
     @testset "Nonlinear 5D Mixture-Laplace-t" begin
         easy = MCBench.nonlinear_5d_mixture_laplace_t_easy
         hard = MCBench.nonlinear_5d_mixture_laplace_t_hard

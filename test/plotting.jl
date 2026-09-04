@@ -150,8 +150,25 @@
                 series -> any(x -> x ≈ expected_iid_normalized_value, series[:x]),
                 unsaved_overview.series_list,
             )
+            expected_overview_ks = MCBench.ks_test(
+                [-0.2, -0.1, 0.0, 0.1, 0.2],
+                [-0.1, 0.0, 0.1, 0.2, 0.3],
+            )
+            overview_yticks = unsaved_overview[1][:yaxis][:ticks][2]
+            @test only(overview_yticks) ==
+                "Mean(x) (KS p = $(round(expected_overview_ks.pvalue; sigdigits=4)))"
             @test !isfile(metrics_pdf)
             @test !isfile(metrics_png)
+
+            overview_without_ks = MCBench.plot_metrics(
+                testcase,
+                [metric],
+                sampler;
+                names=["x"],
+                show_ks_test=false,
+                save_plots=false,
+            )
+            @test only(overview_without_ks[1][:yaxis][:ticks][2]) == "Mean(x)"
 
             # The automatically chosen limits must include the full error bar,
             # not just its central marker.

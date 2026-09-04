@@ -28,6 +28,75 @@ returns the matching values.
 `reference_values(testcase, marginal_mean())` returns the normalized vector or
 `nothing` when that reference is not defined.
 
+## Analytic reference distributions
+
+Analytically known distributions of observation-level transforms use the
+separate `reference_distributions` field:
+
+```julia
+distribution = MvNormal(zeros(2), I(2))
+
+testcase = Testcases(
+    distribution,
+    NamedTupleDist(x=fill(-10..10, 2)),
+    2,
+    "Normal-2D";
+    reference_values=(marginal_mean=zeros(2),),
+    reference_distributions=(
+        squared_mahalanobis=mahalanobis_reference(distribution),
+    ),
+)
+```
+
+An `AnalyticReferenceDistribution` contains:
+
+- `observable`: a function receiving one sample coordinate vector and
+  returning one scalar;
+- `distribution`: the known univariate distribution of that scalar;
+- a goodness-of-fit function and display labels.
+
+Retrieve the descriptor with
+`reference_distribution(testcase, :squared_mahalanobis)`. Compare existing
+samples directly with
+`reference_distribution_test(testcase, samples, :squared_mahalanobis)`, and
+plot the density and CDF comparison with `plot_reference_distribution`.
+Neither operation generates an IID reference sample.
+
+For an existing correlated sample, use the autocorrelation ESS when
+calibrating the goodness-of-fit p-value:
+
+```julia
+result = reference_distribution_test(
+    testcase,
+    samples,
+    :squared_mahalanobis;
+    effective_sample_size=get_effective_sample_size(samples, sampler),
+)
+```
+
+Passing a `SamplingAlgorithm` instead of precomputed samples estimates this
+ESS automatically. Set `correct_for_ess=false` to recover calibration by the
+raw observation count. In either case the empirical CDF and the KS statistic
+use every transformed observation; the ESS changes only the p-value.
+
+For a custom continuous observable:
+
+```julia
+reference = AnalyticReferenceDistribution(
+    x -> T(x),
+    known_distribution;
+    info="T(X)",
+)
+```
+
+The default goodness-of-fit calculation is an asymptotic one-sample KS test.
+For a discrete analytic distribution, supply an appropriate function returning
+`(statistic=..., pvalue=...)` through the `goodness_of_fit` keyword. This keeps
+exact energy distributions for models such as Ising within the same API while
+avoiding an invalid continuous-KS p-value. An ESS-aware custom function must
+also provide a three-argument method
+`goodness_of_fit(values, distribution, effective_sample_size)`.
+
 | Name                            | Equation                                                                                                                                                                                                                   | Parameters                                | Testpoints                                                                                        | Julia | Python | R   | Stan |
 | ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------- | ------------------------------------------------------------------------------------------------ | ----- | ------ | --- | ---- |
 | Standard Normal 1D              | $f(x\|\mu, \sigma) =\frac{1}{\sqrt{2\pi\sigma^2}} e^{-\frac{(x - \mu)^2}{2\sigma^2}}$                                                                                                                                      | $\mu = 0, \sigma = 1$                     | $f(x=0) = 0.39894228$, $f(x=1) = 0.24197072$                                                     | ✅     |    ✅     |  ✅    |   ✅    |

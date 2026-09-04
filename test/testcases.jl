@@ -11,6 +11,7 @@
         @test default_bounds.info == "Default-Bounds"
         @test default_bounds.bounds isa NamedTupleDist
         @test isempty(default_bounds.reference_values)
+        @test isempty(default_bounds.reference_distributions)
         @test_throws ArgumentError MCBench.Testcases(Normal(), 0, "Invalid")
     end
 
@@ -164,7 +165,15 @@
             sampler;
             info="Referenced-DSV",
             reference_values=(marginal_mean=[1.0, 1.0],),
+            reference_distributions=(
+                squared_radius=MCBench.AnalyticReferenceDistribution(
+                    x -> sum(abs2, x),
+                    Chisq(2),
+                ),
+            ),
         )
         @test MCBench.reference_values(referenced, MCBench.marginal_mean()) == [1.0, 1.0]
+        @test MCBench.reference_distribution(referenced, :squared_radius).distribution ==
+            Chisq(2)
     end
 end

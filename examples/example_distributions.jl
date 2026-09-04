@@ -9,7 +9,7 @@
 #
 # The names describe the dimension and the main sampling challenge. Each
 # testcase contains a sampleable target, finite BAT bounds, a display name, and
-# analytical reference values where these are available.
+# analytical reference values and distributions where these are available.
 #
 # Quick guide
 # -----------
@@ -48,6 +48,12 @@ function _normal_reference_values(dim::Int)
     )
 end
 
+# A Gaussian also has an exact observation-level diagnostic: the squared
+# Mahalanobis distance follows a chi-squared law with `dim` degrees of freedom.
+_normal_reference_distributions(distribution) = (
+    squared_mahalanobis=mahalanobis_reference(distribution),
+)
+
 function _moment_reference_values(distribution)
     distribution_mean = Distributions.mean(distribution)
     dim = distribution_mean isa Real ? 1 : length(distribution_mean)
@@ -64,6 +70,7 @@ function _bounded_testcase(
     info::String;
     interval=-10..10,
     reference_values=(;),
+    reference_distributions=(;),
 )
     bounds = NamedTupleDist(x=fill(interval, dim))
     Testcases(
@@ -72,6 +79,7 @@ function _bounded_testcase(
         dim,
         info;
         reference_values=reference_values,
+        reference_distributions=reference_distributions,
     )
 end
 
@@ -94,6 +102,7 @@ function _normal_testcase(dim::Int, info::String; correlation=0.0)
         dim,
         info;
         reference_values=_normal_reference_values(dim),
+        reference_distributions=_normal_reference_distributions(distribution),
     )
 end
 

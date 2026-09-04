@@ -45,6 +45,9 @@ Standard_Normal_3D_Uncorrelated = Testcases(
         marginal_mean=zeros(3),
         marginal_variance=ones(3),
     ),
+    reference_distributions=(
+        squared_mahalanobis=mahalanobis_reference(f),
+    ),
 )
  ```
  
@@ -86,6 +89,58 @@ ESS pilot runs. Use `read_effective_sample_sizes(testcase, sampler)` and
 External file-based samplers continue to use the explicit two-call workflow
 above.
 
+### Analytic reference distributions
+
+MCBench keeps three kinds of comparison deliberately separate:
+
+- `reference_values`: known scalar population values such as a mean or
+  variance.
+- `reference_distributions`: a scalar transform of each observation together
+  with its analytically known target distribution.
+- IID/reference samples: empirical baselines generated and persisted by
+  `build_teststatistic`.
+
+For every built-in single-Gaussian testcase, the squared Mahalanobis distance
+has a chi-squared analytic reference. It can be tested without generating any
+IID reference samples:
+
+```julia
+samples = sample(normal_3d_uncorrelated, 10_000)
+result = reference_distribution_test(
+    normal_3d_uncorrelated,
+    samples,
+    :squared_mahalanobis,
+)
+
+println(result.statistic)
+println(result.pvalue)
+p = plot_reference_distribution(result; save_plots=false)
+```
+
+The plot overlays the empirical transformed values with `Chisq(3)` and shows
+the empirical and analytic CDFs. For an existing correlated sample, pass its
+ESS explicitly so the KS p-value is calibrated with the effective rather than
+raw sample count:
+
+```julia
+result = reference_distribution_test(
+    testcase,
+    mcmc_samples,
+    :observable;
+    effective_sample_size=get_effective_sample_size(mcmc_samples, sampler),
+)
+```
+
+When the sampler itself is passed to `reference_distribution_test`, this ESS
+calculation is enabled by default and can be disabled with
+`correct_for_ess=false`. The default one-sample KS p-value requires a
+continuous, fully specified reference law. Its ESS calibration is an
+approximation for autocorrelated samples, not an exact dependent-sample KS
+test. Custom analytic references can provide another `goodness_of_fit`
+function; an ESS-aware custom function additionally accepts the effective
+sample size as its third argument. This is the extension point for discrete
+laws such as an exact Ising energy distribution.
+
 ### Generating text summaries
 
 The persisted comparison can also be inspected as a table of unnormalized
@@ -109,8 +164,8 @@ uses a dash for individual metric outputs without one. Partial reference
 vectors may contain `missing`, allowing known dimensions or quantiles to remain
 visible even when other outputs of the same metric have no analytical value.
 `comparison=:reference` instead keeps only outputs with known values and
-reports their raw difference plus the number of sampler standard deviations
-from the reference.
+reports their raw difference plus the number of sampler standard errors from
+the reference.
 
 ### Generating comparison plots
 - Overview plot of all selected metrics
@@ -137,6 +192,8 @@ their title. When a reference is available, the title additionally reports a
 two-sided one-sample t-test against that value. Pass `show_ks_test=false` or
 `show_reference_test=false` to hide the corresponding annotation.
 `plot_metrics` retains the historical IID-centered normalization.
+Its row labels show the two-sample KS p-values for the repeated sampler and IID
+metric values by default; pass `show_ks_test=false` to hide them.
 `plot_reference_metrics` skips metrics without known values and plots each
 remaining mean minus its reference value, normalized by the metric's standard
 error across benchmark repetitions. Thus the black point is
@@ -169,6 +226,7 @@ Two smaller focused examples are also available:
 ```bash
 julia --project=. examples/basic_metrics.jl
 julia --project=. examples/end_to_end_benchmark.jl
+julia --project=. examples/analytic_reference_distribution.jl
 ```
 
 `basic_metrics.jl` demonstrates in-memory metric calculations. The end-to-end
@@ -176,16 +234,37 @@ example builds and reloads test-statistic files and writes both individual and
 overview plots to `examples/output/`. Its defaults are intentionally small so
 that it can also serve as a smoke test while developing MCBench.
 
-The walkthrough from Section 6.1 of the MCBench paper, including reproductions
-of Figures 2a, 3, and 4, is available as a separate script:
+The walkthrough from Section 6.1 of the MCBench paper, including modernized and
+extended versions of Figures 2a, 3, and 4, is available as a separate script:
 
 ```bash
 julia --project=. examples/paper_section_6_1.jl
 julia --project=. examples/paper_section_6_1.jl --paper
+julia --project=. examples/paper_section_6_1.jl --paper --raw-batches
 ```
 
 The first command creates a smaller preview. `--paper` selects the published 50
-batches of 100,000 samples and is correspondingly resource intensive.
+batches of 100,000 samples and is correspondingly resource intensive. Current
+MCBench matches the IID batch size to BAT-MH's estimated ESS; add
+`--raw-batches` to use equal raw batch sizes exactly as described in the
+paper. The updated paper plots and additional outputs demonstrate quantiles,
+scalar-reference and sampler-vs-IID p-values, numerical summaries, and a
+standardized nonlinear conditional residual with its analytic Laplace
+distribution.
+
+The corresponding Section 6.2 walkthrough repeats the analysis with the hard,
+multimodal parameter configuration and generates updated versions of Figure 2b
+and Figure 5:
+
+```bash
+julia --project=. examples/paper_section_6_2.jl
+julia --project=. examples/paper_section_6_2.jl --paper
+julia --project=. examples/paper_section_6_2.jl --paper --raw-batches
+```
+
+As above, the first command is a small preview, `--paper` selects the full
+configuration, and `--raw-batches` disables ESS matching for reproducing the
+original raw-batch comparison.
 
 ## List of test cases
 The following table contains all test cases currently available in the benchmark suite.

@@ -21,6 +21,7 @@ import DensityInterface: logdensityof
 include("samplers.jl")
 include("testcases.jl")
 include("sample_utils.jl")
+include("analytic_reference_distributions.jl")
 
 # Metric implementations and their reference-value interface.
 include("mmd.jl")

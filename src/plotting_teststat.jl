@@ -250,9 +250,10 @@ end
     plot_metrics(testcase, normalized_values; ...)
 
 Render a normalized overview plot from rows containing `name`, `val`, and
-optionally `std`. This lower-level method is also used by the metric-based
-overload below. Returns the generated output paths, or the unsaved plot object
-when `save_plots=false`.
+optionally `std`. If a row also contains `ks_pvalue`, it is appended to that
+row's label. This lower-level method is also used by the metric-based overload
+below. Returns the generated output paths, or the unsaved plot object when
+`save_plots=false`.
 """
 function plot_metrics(
     testcase::AbstractTestcase,
@@ -303,10 +304,16 @@ function plot_metrics(
     _draw_std_band!(overview_plot, -3, -2, :red, plot_height, plotalpha)
     _draw_std_band!(overview_plot, 2, 3, :red, plot_height, plotalpha)
 
+    row_labels = [
+        haskey(row, :ks_pvalue) ?
+            "$(row.name) (KS p = $(round(row.ks_pvalue; sigdigits=4)))" :
+            row.name
+        for row in rows
+    ]
     yticks!(
         overview_plot,
         y_values,
-        [row.name for row in rows];
+        row_labels;
         size=(550, plot_height),
         xlims=(-max_x - 0.1, max_x + 0.1),
         ylims=(-10, plot_height + 10),
@@ -336,7 +343,7 @@ end
 
 """
     plot_metrics(testcase, metrics, sampler;
-                 names=[], save_plots=true)
+                 names=[], show_ks_test=true, save_plots=true)
 
 Create the normalized metric overview for a sampler. Each point is
 
@@ -344,6 +351,8 @@ Create the normalized metric overview for a sampler. Each point is
 
 Its error bar is the sampler metric's standard deviation on the same normalized
 scale. The colored background marks one, two, and three IID standard deviations.
+By default, each row label also reports the unadjusted two-sample KS p-value for
+the repeated sampler and IID metric values. Set `show_ks_test=false` to omit it.
 
 By default, the overview is saved as PDF and PNG and their paths are returned.
 Set `save_plots=false` to return the plot object without writing either file.
@@ -353,6 +362,7 @@ function plot_metrics(
     metrics::AbstractVector{<:TestMetric},
     sampler::AnySampler;
     names::AbstractVector=String[],
+    show_ks_test::Bool=true,
     save_plots::Bool=true,
 )
     isempty(metrics) && throw(ArgumentError("metrics cannot be empty"))
@@ -380,11 +390,17 @@ function plot_metrics(
             normalized_mean = (mean(sampler_row) - mean(iid_row)) / iid_scale
             normalized_std = std(sampler_row) / iid_scale
 
-            push!(normalized_values, (
+            normalized_row = (
                 name=labels[dim],
                 val=normalized_mean,
                 std=normalized_std,
-            ))
+            )
+            if show_ks_test
+                normalized_row = merge(normalized_row, (
+                    ks_pvalue=ks_test(iid_row, sampler_row).pvalue,
+                ))
+            end
+            push!(normalized_values, normalized_row)
         end
     end
 

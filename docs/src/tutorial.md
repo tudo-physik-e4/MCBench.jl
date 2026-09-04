@@ -26,6 +26,9 @@ Standard_Normal_3D_Uncorrelated = Testcases(
         marginal_mean=zeros(3),
         marginal_variance=ones(3),
     ),
+    reference_distributions=(
+        squared_mahalanobis=mahalanobis_reference(f),
+    ),
 )
 ```
  
@@ -81,6 +84,46 @@ fixed batch size is the median of the minimum ESS values from
 with `read_effective_sample_sizes(testcase, sampler)` and the fixed size with
 `read_matched_iid_sample_size(testcase, sampler)`. Set `unweight=false` to use
 ordinary raw-sample batching instead.
+
+## Comparing directly with an analytic distribution
+
+This is a third comparison mode, separate from scalar reference values and
+empirical IID reference samples. A testcase entry combines an observation-level
+transform `T(x)` with the known univariate distribution of `T(X)` under the
+target.
+
+All built-in single-Gaussian testcases define the squared Mahalanobis
+diagnostic:
+
+```julia
+samples = sample(normal_3d_uncorrelated, 10_000)
+
+result = reference_distribution_test(
+    normal_3d_uncorrelated,
+    samples,
+    :squared_mahalanobis,
+)
+
+@show result.statistic result.pvalue
+p = plot_reference_distribution(result; save_plots=false)
+```
+
+Here every sample is transformed as
+`(x-μ)' * inv(Σ) * (x-μ)`, whose exact law is `Chisq(d)`. The comparison uses
+the transformed observations directly and does not draw IID reference samples.
+The plot shows both density and CDF comparisons.
+
+The default asymptotic one-sample KS p-value assumes independent observations
+and a fully specified continuous reference distribution. For existing MCMC
+output, pass
+`effective_sample_size=get_effective_sample_size(samples, sampler)` to retain
+the full empirical CDF while calibrating the p-value with the autocorrelation
+ESS. Sampler-based calls do this automatically unless
+`correct_for_ess=false`. This is an approximate ESS correction rather than an
+exact dependent-sample KS test. A custom `goodness_of_fit` function can be
+stored with the reference for discrete cases such as an exact Ising energy
+distribution; to support ESS correction it must also accept the effective
+sample size as a third argument.
 
 ## Generating text summaries
 
