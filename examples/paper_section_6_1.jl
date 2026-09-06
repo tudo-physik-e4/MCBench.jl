@@ -1,0 +1,486 @@
+# Section 6.1 of the MCBench paper
+# =================================
+#
+# Run a manageable preview from the repository root with:
+#
+#     julia --project=. examples/paper_section_6_1.jl
+#
+# Add `--paper` to use 50 batches of 100,000 samples and the full BAT-MH
+# settings:
+#
+#     julia --project=. examples/paper_section_6_1.jl --paper
+#
+# Current MCBench matches the IID batch size to the sampler's estimated ESS.
+# To use equal raw batch sizes exactly as described in the original paper:
+#
+#     julia --project=. examples/paper_section_6_1.jl --paper --raw-batches
+#
+# The full run is expensive, particularly for MMD. Both modes write the same
+# set of plots to `examples/paper_section_6_1_output`. The filenames describe
+# their contents and do not depend on the figure numbering in the paper.
+
+using Random
+
+using BAT
+using Distributions
+using Plots
+
+import MCBench
+
+
+# ---------------------------------------------------------------------------
+# Configuration
+# ---------------------------------------------------------------------------
+
+paper_run = "--paper" in ARGS
+raw_paper_batches = "--raw-batches" in ARGS
+seed = 6101
+
+# Section 6.1 uses 50 independent metric values, each calculated from a batch
+# of 100,000 samples. The preview keeps the workflow identical but much smaller.
+n_repetitions = paper_run ? 50 : 3
+samples_per_repetition = paper_run ? 100_000 : 200
+mh_steps = paper_run ? 100_000 : 500
+mh_chains = paper_run ? 10 : 2
+ess_pilot_runs = paper_run ? 5 : 1
+visual_sample_count = paper_run ? 100_000 : 5_000
+
+# The metric constructors cap the number of points used by the expensive
+# two-sample distances. No overrides are used in paper mode.
+swd_metric = paper_run ?
+    MCBench.sliced_wasserstein_distance() :
+    MCBench.sliced_wasserstein_distance(0.0, samples_per_repetition)
+mmd_metric = paper_run ?
+    MCBench.maximum_mean_discrepancy() :
+    MCBench.maximum_mean_discrepancy(0.0, samples_per_repetition)
+
+output_root = abspath(joinpath(@__DIR__, "paper_section_6_1_output"))
+mkpath(output_root)
+cd(output_root)
+
+println(paper_run ? "Running the full Section 6.1 configuration." : "Running the quick Section 6.1 preview.")
+println(raw_paper_batches ?
+    "Using equal raw sampler and IID batch sizes, as in the paper." :
+    "Matching the IID batch size to the BAT-MH effective sample size.")
+println("Outputs will be written to ", output_root)
+
+
+# ---------------------------------------------------------------------------
+# Testcase, metrics, and sampler from Section 6.1
+# ---------------------------------------------------------------------------
+
+# The easy configuration has a unimodal x1 marginal and uses omega = 0.2.
+testcase = MCBench.nonlinear_5d_mixture_laplace_t_easy
+parameter_names = ["x1", "x2", "x3", "x4", "x5"]
+
+mean_metric = MCBench.marginal_mean()
+variance_metric = MCBench.marginal_variance()
+quantile_metric = MCBench.marginal_quantiles() # 50%, 90%, and 99%
+
+# The original metrics are extended with the default marginal quantiles.
+metrics = MCBench.TestMetric[
+    mean_metric,
+    variance_metric,
+    quantile_metric,
+    swd_metric,
+    mmd_metric,
+]
+
+sampler = MCBench.BATMH(n_steps=mh_steps, nchains=mh_chains)
+
+
+# ---------------------------------------------------------------------------
+# Marginal x1 distribution
+# ---------------------------------------------------------------------------
+
+Random.seed!(seed)
+iid_samples = MCBench.sample(
+    testcase;
+    n_steps=visual_sample_count,
+)
+mh_samples = MCBench.sample(
+    testcase,
+    sampler;
+    n_steps=visual_sample_count,
+    nchains=mh_chains,
+)
+
+# IID samples are stored as vectors. BAT's shaped samples store the same five
+# coordinates in the `x` field of a named tuple.
+iid_x1 = first.(iid_samples.v)
+mh_x1 = first.(getproperty.(mh_samples.v, :x))
+x1_bins = range(-18, 18; length=121)
+
+# This overlay is only a visual diagnostic. A KS test on the raw MCMC draws
+# would incorrectly treat autocorrelated observations as independent.
+p = stephist(
+    iid_x1;
+    bins=x1_bins,
+    normalize=:pdf,
+    color=:blue,
+    linewidth=1.5,
+    label="IID",
+    xlabel="x1",
+    ylabel="p(x1)",
+    title="Unimodal Nonlinear 5D Mixture-Laplace-t",
+    size=(650, 420),
+    dpi=300,
+)
+stephist!(
+    p,
+    mh_x1;
+    bins=x1_bins,
+    weights=mh_samples.weight,
+    normalize=:pdf,
+    color=:red,
+    linewidth=1.5,
+    label="MH",
+)
+savefig(p, output_root * "/x1-marginal.pdf")
+savefig(p, output_root * "/x1-marginal.png")
+
+
+# ---------------------------------------------------------------------------
+# Generate the repeated metric distributions
+# ---------------------------------------------------------------------------
+
+# The paper used 50 sampler batches and 50 IID batches containing 100,000 raw
+# samples each. Current MCBench can instead match the IID batch size to the
+# sampler's effective sample size, which gives a fairer precision comparison
+# for autocorrelated MCMC output. Both workflows are kept explicit here.
+if raw_paper_batches
+    Random.seed!(seed + 1)
+    MCBench.build_teststatistic(
+        testcase,
+        metrics;
+        n=n_repetitions,
+        n_steps=samples_per_repetition,
+        n_samples=samples_per_repetition,
+        par=false,
+        clean=true,
+        use_sampler=false,
+        verbose=true,
+    )
+
+    Random.seed!(seed + 2)
+    MCBench.build_teststatistic(
+        testcase,
+        metrics;
+        s=sampler,
+        n=n_repetitions,
+        n_samples=samples_per_repetition,
+        unweight=false,
+        par=false,
+        clean=true,
+        use_sampler=true,
+        verbose=true,
+    )
+else
+    # With `unweight=true` (the default), this one call writes both the BAT-MH
+    # and matched IID statistic distributions, plus the repetition-level ESS.
+    Random.seed!(seed + 1)
+    MCBench.build_teststatistic(
+        testcase,
+        metrics;
+        s=sampler,
+        n=n_repetitions,
+        n_samples=samples_per_repetition,
+        par=false,
+        clean=true,
+        use_sampler=true,
+        ess_pilot_runs=ess_pilot_runs,
+        verbose=true,
+    )
+
+    effective_sample_sizes = MCBench.read_effective_sample_sizes(testcase, sampler)
+    matched_iid_size = MCBench.read_matched_iid_sample_size(testcase, sampler)
+    println("BAT-MH effective sample sizes: ", effective_sample_sizes)
+    println("Matched IID sample size: ", matched_iid_size)
+end
+
+
+# ---------------------------------------------------------------------------
+# Normalized metric overview
+# ---------------------------------------------------------------------------
+
+p = MCBench.plot_metrics(
+    testcase,
+    metrics,
+    sampler;
+    names=parameter_names,
+    show_ks_test=true,
+    save_plots=false,
+)
+plot!(
+    p;
+    title="Extended IID vs. BAT-MH comparison",
+    size=(900, 910),
+    left_margin=18Plots.mm,
+    right_margin=8Plots.mm,
+    bottom_margin=8Plots.mm,
+)
+savefig(p, output_root * "/metric-overview.pdf")
+savefig(p, output_root * "/metric-overview.png")
+
+
+# ---------------------------------------------------------------------------
+# Distribution of the estimated marginal mean of x1
+# ---------------------------------------------------------------------------
+
+mean_plots = MCBench.plot_teststatistic(
+    testcase,
+    mean_metric,
+    sampler;
+    nbins=20,
+    # Separate bins keep both distributions visible in the small preview.
+    same_bins=paper_run,
+    # Show both the sampler-vs-IID KS test and the scalar-reference t-test.
+    show_reference=true,
+    show_reference_test=true,
+    show_ks_test=true,
+    save_plots=false,
+)
+p_mean_x1 = mean_plots[1]
+plot!(
+    p_mean_x1;
+    size=(560, 430),
+    titlefontsize=9,
+    left_margin=6Plots.mm,
+    bottom_margin=7Plots.mm,
+)
+savefig(p_mean_x1, output_root * "/mean-x1.pdf")
+savefig(p_mean_x1, output_root * "/mean-x1.png")
+
+
+# ---------------------------------------------------------------------------
+# Distribution of the sliced Wasserstein distance
+# ---------------------------------------------------------------------------
+
+swd_plots = MCBench.plot_teststatistic(
+    testcase,
+    swd_metric,
+    sampler;
+    nbins=20,
+    same_bins=paper_run,
+    # SWD has no scalar target reference, so only its KS result is shown.
+    show_reference=true,
+    show_reference_test=true,
+    show_ks_test=true,
+    save_plots=false,
+)
+p_swd = first(swd_plots)
+plot!(
+    p_swd;
+    size=(560, 430),
+    titlefontsize=9,
+    left_margin=6Plots.mm,
+    bottom_margin=7Plots.mm,
+)
+savefig(p_swd, output_root * "/sliced-wasserstein.pdf")
+savefig(p_swd, output_root * "/sliced-wasserstein.png")
+
+# A combined version is convenient for the paper layout.
+p = plot(
+    p_mean_x1,
+    p_swd;
+    layout=(1, 2),
+    size=(1180, 500),
+    left_margin=6Plots.mm,
+    right_margin=4Plots.mm,
+    bottom_margin=8Plots.mm,
+    dpi=300,
+)
+savefig(p, output_root * "/mean-x1-and-sliced-wasserstein.pdf")
+savefig(p, output_root * "/mean-x1-and-sliced-wasserstein.png")
+
+
+# ---------------------------------------------------------------------------
+# One individual quantile distribution
+# ---------------------------------------------------------------------------
+
+# `plot_teststatistic` returns one plot per quantile and parameter. Results are
+# ordered by probability and then by parameter. The first 90% result follows
+# the five 50% results and therefore belongs to x1:
+#
+# - the two-sample KS test compares the repeated BAT-MH and IID metric values;
+# - the reference t-test compares the repeated BAT-MH estimates with the known
+#   scalar 90% quantile, using their standard error of the mean.
+quantile_plots = MCBench.plot_teststatistic(
+    testcase,
+    quantile_metric,
+    sampler;
+    nbins=20,
+    same_bins=paper_run,
+    show_reference=true,
+    show_reference_test=true,
+    show_ks_test=true,
+    save_plots=false,
+)
+p = quantile_plots[testcase.dim + 1]
+plot!(
+    p;
+    xlabel="90% marginal quantile",
+    size=(640, 430),
+    left_margin=6Plots.mm,
+    bottom_margin=7Plots.mm,
+)
+savefig(p, output_root * "/quantile-90-x1.pdf")
+savefig(p, output_root * "/quantile-90-x1.png")
+
+
+# ---------------------------------------------------------------------------
+# Analytical reference values
+# ---------------------------------------------------------------------------
+
+# The testcase stores analytical means and variances. Exact quantile references
+# are included wherever available: all medians and the 90% and 99% quantiles of
+# normal x1. SWD and MMD are omitted because their ideal score of zero is not a
+# target-distribution reference value. Other individual outputs without a
+# reference are omitted as well.
+p = MCBench.plot_reference_metrics(
+    testcase,
+    metrics,
+    sampler;
+    names=parameter_names,
+    save_plots=false,
+)
+plot!(
+    p;
+    title="BAT-MH vs. reference values",
+    legend=:outertopright,
+    size=(900, 670),
+    left_margin=13Plots.mm,
+    right_margin=8Plots.mm,
+    bottom_margin=8Plots.mm,
+)
+savefig(p, output_root * "/reference-metrics.pdf")
+savefig(p, output_root * "/reference-metrics.png")
+
+
+# ---------------------------------------------------------------------------
+# Analytic reference distribution
+# ---------------------------------------------------------------------------
+
+# The conditional model for x2 supplies an exact reference distribution that
+# belongs to the nonlinear Section 6.1 target itself. In particular,
+#
+#   x2 | x1 ~ Laplace(A sin(omega x1), b2)
+#
+# implies that the standardized conditional residual
+#
+#   T2(x) = (x2 - A sin(omega x1)) / b2
+#
+# follows Laplace(0, 1). This checks the nonlinear x1-x2 relation rather than
+# only one marginal distribution.
+target_params = MCBench.nonlinear_5d_mixture_laplace_t_easy_params
+
+function x2_standardized_residual(sample_value)
+    x1 = sample_value[1]
+    x2 = sample_value[2]
+    conditional_mean = target_params.A * sin(target_params.ω * x1)
+    (x2 - conditional_mean) / target_params.b2
+end
+
+x2_residual_reference = MCBench.AnalyticReferenceDistribution(
+    x2_standardized_residual,
+    Laplace(0.0, 1.0);
+    info="Standardized x2 conditional residual",
+)
+
+# Analytic reference distributions are stored separately from scalar reference
+# values. Rebuilding the testcase here preserves all scalar references and adds
+# the custom observation-level transform used by this demonstration.
+testcase_with_reference_curve = MCBench.Testcases(
+    testcase.f,
+    testcase.bounds,
+    testcase.dim,
+    testcase.info;
+    reference_values=testcase.reference_values,
+    reference_distributions=merge(
+        testcase.reference_distributions,
+        (x2_residual=x2_residual_reference,),
+    ),
+)
+
+# Reuse the BAT-MH samples from the marginal plot. The test transforms each
+# five-dimensional observation and compares the residuals with the
+# analytic Laplace curve; no IID reference sample is generated. The empirical
+# curve and KS statistic use all transformed observations, whereas the KS
+# p-value is calibrated with the conservative autocorrelation-based ESS.
+analytic_effective_sample_size = MCBench.get_effective_sample_size(
+    mh_samples,
+    sampler,
+)
+analytic_result = MCBench.reference_distribution_test(
+    testcase_with_reference_curve,
+    mh_samples,
+    :x2_residual,
+    effective_sample_size=analytic_effective_sample_size,
+)
+
+println()
+println("Nonlinear x2-residual analytic comparison:")
+println("  reference distribution = ", analytic_result.reference.distribution)
+println("  transformed observations = ", length(analytic_result.observable_values))
+println("  effective sample size = ", analytic_result.effective_sample_size)
+println("  one-sample KS statistic = ", analytic_result.statistic)
+println("  ESS-adjusted one-sample KS p-value = ", analytic_result.pvalue)
+
+# The upper panel compares the empirical transformed distribution with the
+# analytic Laplace density. The lower panel compares their CDFs, which are
+# the quantities used by the one-sample KS statistic.
+#
+# Replacing the raw sample count with an autocorrelation ESS is an approximate
+# MCMC correction, rather than an exact dependent-sample KS calibration. The
+# plot therefore reports both the raw observation count and the ESS used.
+p = MCBench.plot_reference_distribution(
+    analytic_result;
+    # The smaller CDF panel still shows the discrepancy measured by the KS test.
+    panel_heights=(4, 1),
+    nbins=200,
+    distribution_legend=:topleft,
+    cdf_legend=:bottomright,
+    save_plots=false,
+)
+plot!(
+    p;
+    size=(780, 650),
+    left_margin=7Plots.mm,
+    right_margin=7Plots.mm,
+    bottom_margin=7Plots.mm,
+)
+savefig(p, output_root * "/x2-residual-laplace-reference.pdf")
+savefig(p, output_root * "/x2-residual-laplace-reference.png")
+
+# ---------------------------------------------------------------------------
+# Numerical summaries
+# ---------------------------------------------------------------------------
+
+# This table includes every metric, all quantile rows, the empirical IID
+# comparison, and every available analytical scalar reference value. It also
+# reports the sampler-vs-IID KS p-value and, where a scalar reference exists,
+# its one-sample reference t-test p-value. A dash means that the particular
+# metric output has no known scalar reference.
+println()
+MCBench.print_metric_summary(
+    testcase,
+    metrics,
+    sampler;
+    names=parameter_names,
+    include_reference=true,
+)
+
+# The reference-only table omits metrics without known scalar references. Its
+# normalized difference is (sampler mean - reference) / sampler SEM, which is
+# also the t statistic used to calculate the displayed reference p-value.
+println()
+MCBench.print_metric_summary(
+    testcase,
+    metrics,
+    sampler;
+    names=parameter_names,
+    comparison=:reference,
+)
+
+println()
+println("Finished. Results are available in ", output_root)

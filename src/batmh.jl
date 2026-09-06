@@ -1,31 +1,72 @@
+"""Base type for Markov-chain Monte Carlo sampling algorithms."""
 abstract type MCMCSamplingAlgorithm <: SamplingAlgorithm end
-# Struct for BAT Metropolis-Hastings (MH) sampler
-struct BATMH{
-    SA <: BAT.AbstractSamplingAlgorithm,
-    A <: Any,
-} <: MCMCSamplingAlgorithm
+
+"""
+    BATMH(; n_steps=100_000, nchains=10)
+    BATMH(algorithm, info)
+
+Configure BAT's random-walk Metropolis-Hastings sampler for use with MCBench.
+`n_steps` is the requested number of main sampling steps and `nchains` is the
+number of parallel chains. The second form accepts an existing BAT sampling
+algorithm and a label used in filenames, plots, and summaries.
+
+Pass the result as `s` to [`build_teststatistic`](@ref), or directly to
+[`sample`](@ref).
+"""
+struct BATMH{SA<:BAT.AbstractSamplingAlgorithm,A} <: MCMCSamplingAlgorithm
     sampler::SA
     info::A
 end
 
-# Constructor for posterior measure
-function buildBATPosterior(testcase::Testcases)
-    # Build the BAT posterior using the distribution and bounds from the test case
+function BATMH(; n_steps::Int=100_000, nchains::Int=10)
+    n_steps > 0 || throw(ArgumentError("n_steps must be positive"))
+    nchains > 0 || throw(ArgumentError("nchains must be positive"))
+    algorithm = _bat_mh_algorithm(n_steps, nchains)
+    BATMH(algorithm, "BAT-MH")
+end
+
+# BAT 4 renamed the MCMC configuration types. Keep the fallback so MCBench's
+# declared BAT 3 compatibility remains usable without warnings on BAT 4.
+function _bat_mh_algorithm(n_steps::Int, nchains::Int)
+    if isdefined(BAT, :TransformedMCMC) && isdefined(BAT, :RandomWalk)
+        return BAT.TransformedMCMC(
+            proposal=BAT.RandomWalk(),
+            nsteps=n_steps,
+            nchains=nchains,
+        )
+    end
+
+    BAT.MCMCSampling(
+        mcalg=BAT.MetropolisHastings(),
+        nsteps=n_steps,
+        nchains=nchains,
+    )
+end
+
+"""Build the bounded BAT posterior associated with a testcase."""
+build_bat_posterior(testcase::Testcases) =
     BAT.PosteriorMeasure(testcase, testcase.bounds)
+
+# Backward-compatible spelling retained for existing callers.
+buildBATPosterior(testcase::Testcases) = build_bat_posterior(testcase)
+
+function DensityInterface.logdensityof(testcase::Testcases, point)
+    result = logpdf(testcase.f, point.x)
+    result isa Real ? result : first(result)
 end
 
-# Log density of the test case for BAT.jl usage
-function DensityInterface.logdensityof(d::Testcases, x)
-    logpdf(d.f, x.x)[1]
+function sample(
+    testcase::Testcases,
+    sampler::BATMH;
+    n_steps::Int=100_000,
+    nchains::Int=10,
+)
+    algorithm = if n_steps == 100_000 && nchains == 10
+        sampler.sampler
+    else
+        BATMH(n_steps=n_steps, nchains=nchains).sampler
+    end
+    bat_sample(build_bat_posterior(testcase), algorithm).result
 end
 
-# Constructor for BAT Metropolis-Hastings (MH) sampler
-function BATMH(; n_steps=10^5, nchains=10)
-    BATMH(MCMCSampling(mcalg = MetropolisHastings(), nsteps=n_steps, nchains=nchains), "BAT-MH")
-end
-
-# Sample function for test cases using BAT Metropolis-Hastings (MH) sampler
-function sample(t::Testcases, s::BATMH; n_steps::Int=10^5, nchains::Int=10)
-    sampler = (n_steps != 10^5 || nchains != 10) ? BATMH(n_steps=n_steps, nchains=nchains).sampler : s.sampler
-    bat_sample(buildBATPosterior(t), sampler).result
-end
+export MCMCSamplingAlgorithm, BATMH, build_bat_posterior, buildBATPosterior

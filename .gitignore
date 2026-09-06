@@ -2,6 +2,10 @@
 .DS_Store
 .ipynb_checkpoints
 Manifest.toml
+/examples/output/
+/examples/quickstart_output/
+/examples/paper_section_6_1_output/
+/examples/paper_section_6_2_output/
 ./test/*
 ./Cauchy*/
 ./Normal*/
