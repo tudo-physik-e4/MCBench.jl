@@ -21,6 +21,9 @@ MCBench supports three distinct reference modes:
 Sampling may be performed through BAT.jl or outside Julia. Existing samples can
 be supplied as matrices, BAT density sample vectors, or CSV files.
 
+<img src="docs/images/MCBench-Workflow.svg" width="800" alt="MCBench workflow"/>
+
+
 The accompanying paper is available on
 [arXiv](https://arxiv.org/abs/2501.03138).
 
@@ -31,13 +34,7 @@ MCBench supports Julia 1.9 and newer. Julia can be downloaded from the
 
 ### Install MCBench in a Julia environment
 
-Start Julia in the project where you want to use MCBench:
-
-```bash
-julia --project=.
-```
-
-Then install the package from GitHub:
+Install the package from GitHub:
 
 ```julia
 using Pkg
@@ -50,27 +47,6 @@ environment. Verify the installation with:
 ```julia
 import MCBench
 MCBench.normal_3d_uncorrelated
-```
-
-If you do not want to use a project-specific environment, start Julia without
-`--project=.`; the package will then be added to your currently active Julia
-environment.
-
-### Clone the repository
-
-Clone the repository when you want to run the included examples, execute the
-test suite, or modify MCBench itself:
-
-```bash
-git clone https://github.com/tudo-physik-e4/MCBench.jl.git
-cd MCBench.jl
-julia --project=. -e "using Pkg; Pkg.instantiate()"
-```
-
-Run the tests from the repository root with:
-
-```bash
-julia --project=. -e "using Pkg; Pkg.test()"
 ```
 
 ## Quick start
@@ -375,25 +351,6 @@ The repository intentionally keeps the example set small:
 - [`examples/paper_section_6_2.jl`](examples/paper_section_6_2.jl) repeats the
   analysis for the difficult multimodal configuration.
 
-From a cloned repository, run the quickstart with:
-
-```bash
-julia --project=. examples/quickstart.jl
-```
-
-The paper scripts run a smaller preview by default. Add `--paper` for their
-full settings and `--raw-batches` to reproduce the original raw-batch
-comparison without ESS matching:
-
-```bash
-julia --project=. examples/paper_section_6_1.jl
-julia --project=. examples/paper_section_6_1.jl --paper
-julia --project=. examples/paper_section_6_2.jl --paper --raw-batches
-```
-
-Outputs are written below the corresponding directory in `examples/`.
-
-<img src="docs/images/MCBench-Workflow.svg" width="800" alt="MCBench workflow"/>
 
 ## Further documentation
 
