@@ -19,7 +19,12 @@ end
 _as_metric_vector(value::Real) = [Float64(value)]
 _as_metric_vector(value::AbstractVector) = Float64.(value)
 
-"""Marginal sample mean for every testcase dimension."""
+"""
+    marginal_mean()
+
+Metric for the weighted sample mean of each testcase dimension. It produces
+one output per dimension, in the same order as the sample coordinates.
+"""
 struct marginal_mean{V<:Real,A} <: TestMetric
     val::V
     info::A
@@ -41,7 +46,12 @@ end
 export marginal_mean
 
 
-"""Marginal sample variance for every testcase dimension."""
+"""
+    marginal_variance()
+
+Metric for the corrected weighted sample variance of each testcase dimension.
+It produces one output per dimension.
+"""
 struct marginal_variance{V<:Real,A} <: TestMetric
     val::V
     info::A
@@ -207,7 +217,12 @@ end
 export marginal_mode
 
 
-"""Weighted marginal skewness for every testcase dimension."""
+"""
+    marginal_skewness()
+
+Metric for the weighted marginal skewness of each testcase dimension. A
+symmetric target has population skewness zero when that moment exists.
+"""
 struct marginal_skewness{V<:Real,A} <: TestMetric
     val::V
     info::A
@@ -283,7 +298,18 @@ end
 export wasserstein_1d
 
 
-"""Sliced Wasserstein distance over random one-dimensional projections."""
+"""
+    sliced_wasserstein_distance()
+    sliced_wasserstein_distance(0.0, max_samples)
+
+Two-sample metric that averages one-dimensional Wasserstein distances over
+random projections of the sample clouds. The default compares at most 100,000
+observations from each input. The second form sets that limit explicitly;
+`max_samples=0` uses all available observations.
+
+The metric produces one value for the complete multivariate sample rather
+than one value per dimension.
+"""
 struct sliced_wasserstein_distance{V<:Real,I<:Int,A,P} <: TwoSampleMetric
     val::V
     N::I
@@ -317,7 +343,17 @@ end
 export sliced_wasserstein_distance
 
 
-"""Gaussian-kernel maximum mean discrepancy between two samples."""
+"""
+    maximum_mean_discrepancy()
+    maximum_mean_discrepancy(0.0, max_samples)
+
+Two-sample metric for Gaussian-kernel maximum mean discrepancy (MMD). The
+default compares at most 10,000 observations from each input. The second form
+sets that limit explicitly; `max_samples=0` uses all available observations.
+The Gaussian-kernel scale is selected with the median-distance heuristic.
+
+The metric produces one value for the complete multivariate sample.
+"""
 struct maximum_mean_discrepancy{V<:Real,I<:Int,A,P} <: TwoSampleMetric
     val::V
     N::I

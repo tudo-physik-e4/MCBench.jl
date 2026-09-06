@@ -26,7 +26,14 @@ end
     make_dsv(samples, logdensities; weights=...)
 
 Create a BAT `DensitySampleVector` from a matrix whose columns are samples.
-Log densities are optional when downstream metrics do not require them.
+For a one-dimensional target, a vector of scalar observations is also
+accepted; a vector of vectors is interpreted as one coordinate vector per
+sample.
+
+`logdensities` and `weights` must contain one entry per sample. Log densities
+default to one when they are unavailable, which is sufficient for metrics that
+do not use density values. Weights default to one. Inputs are copied into the
+returned sample vector.
 """
 function make_dsv(
     samples::AbstractMatrix{<:Real};

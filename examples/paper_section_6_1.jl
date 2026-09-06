@@ -1,11 +1,12 @@
-# Reproduce the walkthrough from Section 6.1 of the MCBench paper
-# =================================================================
+# Section 6.1 of the MCBench paper
+# =================================
 #
 # Run a manageable preview from the repository root with:
 #
 #     julia --project=. examples/paper_section_6_1.jl
 #
-# To use the paper's 50 batches of 100,000 samples and its BAT-MH settings:
+# Add `--paper` to use 50 batches of 100,000 samples and the full BAT-MH
+# settings:
 #
 #     julia --project=. examples/paper_section_6_1.jl --paper
 #
@@ -14,19 +15,9 @@
 #
 #     julia --project=. examples/paper_section_6_1.jl --paper --raw-batches
 #
-# The paper configuration is computationally expensive, particularly for MMD.
-# Both modes generate the same figures below `examples/paper_section_6_1_output`.
-# The experiment follows Figures 2a, 3, and 4 from the paper, but intentionally
-# uses MCBench's current plots rather than recreating their historical style.
-# The updated plots add quantiles, scalar reference values and their p-values,
-# sampler-vs-IID KS tests, numerical summaries, and an analytic Laplace
-# reference curve for a nonlinear conditional observable.
-#
-# Output naming guide:
-# - `figure-*` files are modern, extended versions of plots in Section 6.1.
-# - `additional-*` files demonstrate features added to MCBench afterwards.
-# The experiment behind the `figure-*` files is still the one from the paper;
-# only the presentation and reported diagnostics have been modernized.
+# The full run is expensive, particularly for MMD. Both modes write the same
+# set of plots to `examples/paper_section_6_1_output`. The filenames describe
+# their contents and do not depend on the figure numbering in the paper.
 
 using Random
 
@@ -41,8 +32,8 @@ import MCBench
 # Configuration
 # ---------------------------------------------------------------------------
 
-paper_run = true#"--paper" in ARGS
-raw_paper_batches = false#"--raw-batches" in ARGS
+paper_run = "--paper" in ARGS
+raw_paper_batches = "--raw-batches" in ARGS
 seed = 6101
 
 # Section 6.1 uses 50 independent metric values, each calculated from a batch
@@ -78,8 +69,7 @@ println("Outputs will be written to ", output_root)
 # Testcase, metrics, and sampler from Section 6.1
 # ---------------------------------------------------------------------------
 
-# This built-in testcase is the unimodal Nonlinear 5D Mixture-Laplace-t target
-# described in the paper: mode_sep1 = 0 and omega = 0.2.
+# The easy configuration has a unimodal x1 marginal and uses omega = 0.2.
 testcase = MCBench.nonlinear_5d_mixture_laplace_t_easy
 parameter_names = ["x1", "x2", "x3", "x4", "x5"]
 
@@ -87,8 +77,7 @@ mean_metric = MCBench.marginal_mean()
 variance_metric = MCBench.marginal_variance()
 quantile_metric = MCBench.marginal_quantiles() # 50%, 90%, and 99%
 
-# Section 6.1 used means, variances, SWD, and MMD. The updated overview also
-# includes the default marginal quantiles to demonstrate the current metric set.
+# The original metrics are extended with the default marginal quantiles.
 metrics = MCBench.TestMetric[
     mean_metric,
     variance_metric,
@@ -101,7 +90,7 @@ sampler = MCBench.BATMH(n_steps=mh_steps, nchains=mh_chains)
 
 
 # ---------------------------------------------------------------------------
-# Updated Figure 2a: marginal x1 distribution for IID and BAT-MH samples
+# Marginal x1 distribution
 # ---------------------------------------------------------------------------
 
 Random.seed!(seed)
@@ -122,10 +111,8 @@ iid_x1 = first.(iid_samples.v)
 mh_x1 = first.(getproperty.(mh_samples.v, :x))
 x1_bins = range(-18, 18; length=121)
 
-# This marginal overlay remains a visual diagnostic. A naive KS p-value on the
-# raw MCMC draws would assume independent observations and would therefore be
-# misleading. The updated Figures 3 and 4 test the repeated, ESS-matched metric
-# values instead.
+# This overlay is only a visual diagnostic. A KS test on the raw MCMC draws
+# would incorrectly treat autocorrelated observations as independent.
 p = stephist(
     iid_x1;
     bins=x1_bins,
@@ -149,8 +136,8 @@ stephist!(
     linewidth=1.5,
     label="MH",
 )
-savefig(p, output_root * "/figure-2a-x1-marginal.pdf")
-savefig(p, output_root * "/figure-2a-x1-marginal.png")
+savefig(p, output_root * "/x1-marginal.pdf")
+savefig(p, output_root * "/x1-marginal.png")
 
 
 # ---------------------------------------------------------------------------
@@ -213,7 +200,7 @@ end
 
 
 # ---------------------------------------------------------------------------
-# Figure 3: normalized overview with extended metrics and KS p-values
+# Normalized metric overview
 # ---------------------------------------------------------------------------
 
 p = MCBench.plot_metrics(
@@ -232,12 +219,12 @@ plot!(
     right_margin=8Plots.mm,
     bottom_margin=8Plots.mm,
 )
-savefig(p, output_root * "/figure-3-metric-overview.pdf")
-savefig(p, output_root * "/figure-3-metric-overview.png")
+savefig(p, output_root * "/metric-overview.pdf")
+savefig(p, output_root * "/metric-overview.png")
 
 
 # ---------------------------------------------------------------------------
-# Figure 4a: distribution of the estimated marginal mean of x1
+# Distribution of the estimated marginal mean of x1
 # ---------------------------------------------------------------------------
 
 mean_plots = MCBench.plot_teststatistic(
@@ -245,11 +232,9 @@ mean_plots = MCBench.plot_teststatistic(
     mean_metric,
     sampler;
     nbins=20,
-    # Separate bins keep both distributions visible in the deliberately small
-    # preview. The full run uses common bins, as in the paper comparison.
+    # Separate bins keep both distributions visible in the small preview.
     same_bins=paper_run,
-    # The dashed line is the known target mean. The title reports both the
-    # BAT-MH-vs-IID KS test and the BAT-MH-vs-reference t-test.
+    # Show both the sampler-vs-IID KS test and the scalar-reference t-test.
     show_reference=true,
     show_reference_test=true,
     show_ks_test=true,
@@ -263,12 +248,12 @@ plot!(
     left_margin=6Plots.mm,
     bottom_margin=7Plots.mm,
 )
-savefig(p_mean_x1, output_root * "/figure-4a-mean-x1.pdf")
-savefig(p_mean_x1, output_root * "/figure-4a-mean-x1.png")
+savefig(p_mean_x1, output_root * "/mean-x1.pdf")
+savefig(p_mean_x1, output_root * "/mean-x1.png")
 
 
 # ---------------------------------------------------------------------------
-# Updated Figure 4b: distribution of the sliced Wasserstein distance
+# Distribution of the sliced Wasserstein distance
 # ---------------------------------------------------------------------------
 
 swd_plots = MCBench.plot_teststatistic(
@@ -277,8 +262,7 @@ swd_plots = MCBench.plot_teststatistic(
     sampler;
     nbins=20,
     same_bins=paper_run,
-    # SWD has no scalar target reference value. Its title therefore shows the
-    # BAT-MH-vs-IID KS test, but correctly does not show a reference t-test.
+    # SWD has no scalar target reference, so only its KS result is shown.
     show_reference=true,
     show_reference_test=true,
     show_ks_test=true,
@@ -292,10 +276,10 @@ plot!(
     left_margin=6Plots.mm,
     bottom_margin=7Plots.mm,
 )
-savefig(p_swd, output_root * "/figure-4b-sliced-wasserstein.pdf")
-savefig(p_swd, output_root * "/figure-4b-sliced-wasserstein.png")
+savefig(p_swd, output_root * "/sliced-wasserstein.pdf")
+savefig(p_swd, output_root * "/sliced-wasserstein.png")
 
-# Save the two updated panels together, following Figure 4's subject and layout.
+# A combined version is convenient for the paper layout.
 p = plot(
     p_mean_x1,
     p_swd;
@@ -306,18 +290,17 @@ p = plot(
     bottom_margin=8Plots.mm,
     dpi=300,
 )
-savefig(p, output_root * "/figure-4-combined.pdf")
-savefig(p, output_root * "/figure-4-combined.png")
+savefig(p, output_root * "/mean-x1-and-sliced-wasserstein.pdf")
+savefig(p, output_root * "/mean-x1-and-sliced-wasserstein.png")
 
 
 # ---------------------------------------------------------------------------
-# Additional MCBench output: one individual quantile distribution
+# One individual quantile distribution
 # ---------------------------------------------------------------------------
 
 # `plot_teststatistic` returns one plot per quantile and parameter. Results are
 # ordered by probability and then by parameter. The first 90% result follows
-# the five 50% results and therefore belongs to x1. This demonstrates that the
-# modern annotations used in the updated Figure 4 also apply to quantiles:
+# the five 50% results and therefore belongs to x1:
 #
 # - the two-sample KS test compares the repeated BAT-MH and IID metric values;
 # - the reference t-test compares the repeated BAT-MH estimates with the known
@@ -341,12 +324,12 @@ plot!(
     left_margin=6Plots.mm,
     bottom_margin=7Plots.mm,
 )
-savefig(p, output_root * "/additional-quantile-90-x1.pdf")
-savefig(p, output_root * "/additional-quantile-90-x1.png")
+savefig(p, output_root * "/quantile-90-x1.pdf")
+savefig(p, output_root * "/quantile-90-x1.png")
 
 
 # ---------------------------------------------------------------------------
-# Additional MCBench output: analytical reference values
+# Analytical reference values
 # ---------------------------------------------------------------------------
 
 # The testcase stores analytical means and variances. Exact quantile references
@@ -370,12 +353,12 @@ plot!(
     right_margin=8Plots.mm,
     bottom_margin=8Plots.mm,
 )
-savefig(p, output_root * "/additional-reference-metrics.pdf")
-savefig(p, output_root * "/additional-reference-metrics.png")
+savefig(p, output_root * "/reference-metrics.pdf")
+savefig(p, output_root * "/reference-metrics.png")
 
 
 # ---------------------------------------------------------------------------
-# Additional MCBench output: an analytic reference distribution
+# Analytic reference distribution
 # ---------------------------------------------------------------------------
 
 # The conditional model for x2 supplies an exact reference distribution that
@@ -419,8 +402,8 @@ testcase_with_reference_curve = MCBench.Testcases(
     ),
 )
 
-# Reuse the BAT-MH samples plotted in Figure 2a. The test transforms each
-# five-dimensional observation and compares the residuals directly with the
+# Reuse the BAT-MH samples from the marginal plot. The test transforms each
+# five-dimensional observation and compares the residuals with the
 # analytic Laplace curve; no IID reference sample is generated. The empirical
 # curve and KS statistic use all transformed observations, whereas the KS
 # p-value is calibrated with the conservative autocorrelation-based ESS.
@@ -452,12 +435,9 @@ println("  ESS-adjusted one-sample KS p-value = ", analytic_result.pvalue)
 # plot therefore reports both the raw observation count and the ESS used.
 p = MCBench.plot_reference_distribution(
     analytic_result;
-    # The density carries most of the visual information. Keep the CDF as a
-    # compact lower panel because it directly shows the discrepancy used by
-    # the KS statistic. Both legend positions can be changed independently.
-    # Add `title="..."` here to replace the automatically generated title.
+    # The smaller CDF panel still shows the discrepancy measured by the KS test.
     panel_heights=(4, 1),
-    nbins= 200,
+    nbins=200,
     distribution_legend=:topleft,
     cdf_legend=:bottomright,
     save_plots=false,
@@ -469,12 +449,8 @@ plot!(
     right_margin=7Plots.mm,
     bottom_margin=7Plots.mm,
 )
-savefig(p, output_root * "/additional-x2-residual-laplace-reference.pdf")
-savefig(p, output_root * "/additional-x2-residual-laplace-reference.png")
-
-# See `examples/analytic_reference_distribution.jl` for the next step: defining
-# other custom observables and their analytic reference distributions.
-
+savefig(p, output_root * "/x2-residual-laplace-reference.pdf")
+savefig(p, output_root * "/x2-residual-laplace-reference.png")
 
 # ---------------------------------------------------------------------------
 # Numerical summaries
@@ -507,7 +483,4 @@ MCBench.print_metric_summary(
 )
 
 println()
-println(
-    "Finished. Generated updated Figures 2a, 3, and 4 plus additional outputs in ",
-    output_root,
-)
+println("Finished. Results are available in ", output_root)

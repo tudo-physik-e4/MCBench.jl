@@ -1,7 +1,18 @@
 """Base type for Markov-chain Monte Carlo sampling algorithms."""
 abstract type MCMCSamplingAlgorithm <: SamplingAlgorithm end
 
-"""Configuration wrapper for BAT's Metropolis-Hastings sampler."""
+"""
+    BATMH(; n_steps=100_000, nchains=10)
+    BATMH(algorithm, info)
+
+Configure BAT's random-walk Metropolis-Hastings sampler for use with MCBench.
+`n_steps` is the requested number of main sampling steps and `nchains` is the
+number of parallel chains. The second form accepts an existing BAT sampling
+algorithm and a label used in filenames, plots, and summaries.
+
+Pass the result as `s` to [`build_teststatistic`](@ref), or directly to
+[`sample`](@ref).
+"""
 struct BATMH{SA<:BAT.AbstractSamplingAlgorithm,A} <: MCMCSamplingAlgorithm
     sampler::SA
     info::A

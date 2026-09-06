@@ -1,4 +1,4 @@
-@testset "Built-in example distributions" begin
+@testset "Built-in testcases" begin
     @testset "Gaussian analytic reference distributions" begin
         for (testcase, dimension) in (
             (MCBench.normal_1d_uncorrelated, 1),

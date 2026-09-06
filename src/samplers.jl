@@ -118,7 +118,9 @@ export FileBasedSampler
     CsvBasedSampler(path; info="CsvBasedSampler")
 
 Read numeric CSV rows while retaining the header and a selectable column mask.
-Each input file must use the same header.
+Each input file must use the same header. By default all columns are read in
+their file order. Use [`set_mask`](@ref) to select and reorder parameter
+columns before sampling.
 """
 mutable struct CsvBasedSampler <: AbstractFileBasedSampler
     fbs::FileBasedSampler
@@ -160,6 +162,12 @@ function read_sample!(sampler::CsvBasedSampler)
     end
 end
 
+"""
+    set_mask(sampler::CsvBasedSampler, columns)
+
+Select CSV columns by header name and arrange them in the order given by
+`columns`. The updated sampler is returned, so the call may be chained.
+"""
 function set_mask(sampler::CsvBasedSampler, columns::AbstractVector{<:AbstractString})
     header_indices = Dict(name => index for (index, name) in enumerate(sampler.header))
     missing_columns = filter(column -> !haskey(header_indices, column), columns)
@@ -187,7 +195,9 @@ export CsvBasedSampler
     DsvSampler(dsvs; info="DsvSampler")
 
 Store one or more BAT `DensitySampleVector` objects for deterministic reuse and
-resampling in benchmark workflows.
+resampling in benchmark workflows. `info` is used in output filenames, plot
+labels, and summary headings. MCBench resamples a stored vector when an
+unweighted batch with a requested size is needed.
 """
 mutable struct DsvSampler{D<:DensitySampleVector} <: AbstractFileBasedSampler
     dsvs::Vector{D}

@@ -1,7 +1,6 @@
-# Implementation of the PosteriorDB eight-schools example.
+# PosteriorDB eight-schools target
 #
-# The ready-to-use testcase constants are declared in
-# `example_distributions.jl`, alongside the other built-in targets.
+# The ready-to-use testcase constants are listed in `builtin_testcases.jl`.
 
 
 # ---------------------------------------------------------------------------

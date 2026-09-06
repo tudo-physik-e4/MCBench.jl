@@ -30,6 +30,10 @@
     @test !contains(paper_example, "gaussian_testcase")
     @test contains(paper_example, "raw_paper_batches")
     @test contains(paper_example, "n_repetitions = paper_run ? 50 : 3")
+    @test contains(paper_example, "/x1-marginal.pdf")
+    @test contains(paper_example, "/metric-overview.pdf")
+    @test !contains(paper_example, "figure-")
+    @test !contains(paper_example, "additional-")
     @test !contains(paper_example, "show_ks_test=false")
     @test !contains(paper_example, "paper_metrics")
 
@@ -53,8 +57,10 @@
         hard_paper_example,
         "nonlinear_5d_mixture_laplace_t_easy",
     )
-    @test contains(hard_paper_example, "figure-2b-x1-marginal")
-    @test contains(hard_paper_example, "figure-5-metric-overview")
+    @test contains(hard_paper_example, "/x1-marginal.pdf")
+    @test contains(hard_paper_example, "/metric-overview.pdf")
+    @test !contains(hard_paper_example, "figure-")
+    @test !contains(hard_paper_example, "additional-")
     @test contains(hard_paper_example, "marginal_quantiles()")
     @test contains(hard_paper_example, "plot_reference_metrics")
     @test contains(hard_paper_example, "print_metric_summary")
@@ -68,44 +74,4 @@
     @test contains(hard_paper_example, "n_repetitions = paper_run ? 50 : 3")
     @test !contains(hard_paper_example, "show_ks_test=false")
 
-    analytic_example_path = joinpath(
-        @__DIR__,
-        "..",
-        "examples",
-        "analytic_reference_distribution.jl",
-    )
-    analytic_example = read(analytic_example_path, String)
-    @test Meta.parseall(analytic_example) isa Expr
-    @test contains(analytic_example, "reference_distribution_test")
-    @test contains(analytic_example, "plot_reference_distribution")
-    @test contains(analytic_example, "AnalyticReferenceDistribution")
-    @test contains(analytic_example, "coordinate_sum")
-    @test contains(analytic_example, "coordinate_sum_distribution")
-    @test !contains(analytic_example, "MCBench.build_teststatistic(")
-
-    include(joinpath(@__DIR__, "..", "examples", "basic_metrics.jl"))
-    basic_result = BasicMetricsExample.main(n_samples=200, seed=77, verbose=false)
-    @test length(basic_result.mean) == 2
-    @test length(basic_result.variance) == 2
-    @test isfinite(basic_result.wasserstein)
-    @test isfinite(basic_result.mmd)
-    @test basic_result.reference_mean == [0.0, 0.0]
-
-    include(joinpath(@__DIR__, "..", "examples", "end_to_end_benchmark.jl"))
-    mktempdir() do dir
-        result = EndToEndBenchmarkExample.main(
-            output_dir=dir,
-            n_repetitions=3,
-            n_samples=30,
-            seed=88,
-            verbose=false,
-        )
-
-        @test size(result.iid_mean) == (2, 3)
-        @test size(result.sampler_mean) == (2, 3)
-        @test length(result.plot_files) == 6
-        @test any(contains("Variance"), result.plot_files)
-        @test all(isfile, result.plot_files)
-        @test all(path -> filesize(path) > 0, result.plot_files)
-    end
 end

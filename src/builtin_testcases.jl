@@ -1,15 +1,14 @@
-# Built-in MCBench testcases
-# ==========================
+# Built-in testcase catalog
+# =========================
 #
-# This file is the catalog of distributions shipped with MCBench. Most users
-# only need to select one of the testcase constants below, for example:
+# This file lists the distributions shipped with MCBench. Most users only need
+# to select one of the testcase constants below, for example:
 #
 #     testcase = MCBench.normal_3d_uncorrelated
 #     testcase = MCBench.nonlinear_5d_mixture_laplace_t_hard
 #
-# The names describe the dimension and the main sampling challenge. Each
-# testcase contains a sampleable target, finite BAT bounds, a display name, and
-# analytical reference values and distributions where these are available.
+# Each testcase contains a sampleable target, finite BAT bounds, a display name,
+# and analytical references where they are available.
 #
 # Quick guide
 # -----------
@@ -28,9 +27,8 @@
 # Shared construction helpers
 # ---------------------------------------------------------------------------
 
-# Store analytical properties of the target itself. The ideal zero scores of
-# multivariate two-sample comparisons such as SWD and MMD are intentionally not
-# treated as target reference values.
+# SWD and MMD are deliberately omitted: their ideal score is not a property of
+# the target distribution itself.
 function _normal_reference_values(dim::Int)
     (
         marginal_mean=zeros(dim),
@@ -48,8 +46,7 @@ function _normal_reference_values(dim::Int)
     )
 end
 
-# A Gaussian also has an exact observation-level diagnostic: the squared
-# Mahalanobis distance follows a chi-squared law with `dim` degrees of freedom.
+# For a Gaussian, the squared Mahalanobis distance follows ChiSquared(dim).
 _normal_reference_distributions(distribution) = (
     squared_mahalanobis=mahalanobis_reference(distribution),
 )
@@ -106,16 +103,15 @@ function _normal_testcase(dim::Int, info::String; correlation=0.0)
     )
 end
 
-# Independent standard normals are useful for basic correctness and scaling
-# checks. The 100D variant can also expose poor high-dimensional behavior.
+# Independent standard normals provide simple baseline cases.
 const normal_1d_uncorrelated = _normal_testcase(1, "Normal-1D-Uncorrelated")
 const normal_2d_uncorrelated = _normal_testcase(2, "Normal-2D-Uncorrelated")
+"""Three-dimensional independent standard-normal testcase."""
 const normal_3d_uncorrelated = _normal_testcase(3, "Normal-3D-Uncorrelated")
 const normal_10d_uncorrelated = _normal_testcase(10, "Normal-10D-Uncorrelated")
 const normal_100d_uncorrelated = _normal_testcase(100, "Normal-100D-Uncorrelated")
 
-# Equicorrelated normals isolate the effect of linear dependence. Every pair
-# of dimensions has the correlation shown in the testcase name.
+# Every pair of dimensions has the correlation shown in the testcase name.
 const normal_2d_weakly_correlated = _normal_testcase(
     2,
     "Normal-2D-Weakly-Correlated";
@@ -171,8 +167,7 @@ function _univariate_mixture_testcase(
     )
 end
 
-# These one-dimensional cases separate mode-finding problems from dependence
-# problems. The 1-to-3 variants additionally test unequal mode weights.
+# The 1-to-3 variants have unequal mode weights.
 const normal_1d_multimodal_4std = _univariate_mixture_testcase(
     2,
     [0.5, 0.5],
@@ -215,8 +210,7 @@ function _multivariate_mixture_testcase(dim::Int, info::String)
     )
 end
 
-# Both multivariate mixtures combine separated, unequal modes with strong
-# within-mode correlation.
+# These mixtures combine separated, unequal modes with strong correlation.
 const normal_3d_multimodal_10std = _multivariate_mixture_testcase(
     3,
     "Normal-3D-Multimodal-10std",
@@ -240,8 +234,8 @@ const cauchy_1d = _bounded_testcase(Cauchy(), 1, "Cauchy-1D")
 # 4. Nonlinear 5D Mixture-Laplace-t targets
 # ---------------------------------------------------------------------------
 
-# The target mechanics are kept in a companion file so this catalog remains
-# easy to scan. The model combines:
+# The implementation lives in a separate file to keep this catalog easy to
+# scan. The target combines:
 #
 # - an optional two-component Gaussian mixture for x1;
 # - a nonlinear Laplace conditional for x2;
@@ -252,6 +246,7 @@ include("nonlinear_5d_mixture_laplace_t.jl")
 
 # Easy scenario: x1 is unimodal, the x1-x2 curve varies slowly, and the
 # remaining dependencies and heteroskedasticity are mild.
+"""Parameter set used by [`nonlinear_5d_mixture_laplace_t_easy`](@ref)."""
 const nonlinear_5d_mixture_laplace_t_easy_params = NonlinearMixtureLaplaceTParams(
     A=2.0,
     ω=0.2,
@@ -276,6 +271,7 @@ const nonlinear_5d_mixture_laplace_t_easy_params = NonlinearMixtureLaplaceTParam
 # Hard scenario: x1 has two widely separated, unequally weighted modes. Its
 # faster x1-x2 oscillation is layered on top of the stronger default nonlinear
 # dependencies, heteroskedasticity, and x5 mixture gate.
+"""Parameter set used by [`nonlinear_5d_mixture_laplace_t_hard`](@ref)."""
 const nonlinear_5d_mixture_laplace_t_hard_params = withparams(
     NonlinearMixtureLaplaceTParams();
     mode_sep1=8.0,
@@ -283,11 +279,13 @@ const nonlinear_5d_mixture_laplace_t_hard_params = withparams(
     ω=0.7,
 )
 
+"""Ready-to-use testcase for the easier, unimodal nonlinear 5D target."""
 const nonlinear_5d_mixture_laplace_t_easy = nonlinear_5d_mixture_laplace_t(
     nonlinear_5d_mixture_laplace_t_easy_params;
     info="Nonlinear-5D-Mixture-Laplace-t-Easy",
 )
 
+"""Ready-to-use testcase for the harder, multimodal nonlinear 5D target."""
 const nonlinear_5d_mixture_laplace_t_hard = nonlinear_5d_mixture_laplace_t(
     nonlinear_5d_mixture_laplace_t_hard_params;
     info="Nonlinear-5D-Mixture-Laplace-t-Hard",
@@ -308,9 +306,8 @@ export nonlinear_5d_mixture_laplace_t_hard_params
 # transformed version stores log(tau), which removes the positive boundary on
 # the population-scale parameter and is often easier for MCMC samplers.
 #
-# Model data, accept-reject sampling, and log-density details live in the
-# companion file; only the two ready-to-use testcase choices are listed here.
-include("example_posteriordb.jl")
+# Model data, sampling, and log-density details live in `eight_schools.jl`.
+include("eight_schools.jl")
 
 const eight_schools_testcase = make_eight_schools_testcase(
     info="EightSchoolsAcceptReject",

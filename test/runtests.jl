@@ -30,4 +30,6 @@ include("fixtures.jl")
     include("metric_summary.jl")
     include("plotting.jl")
     include("examples.jl")
+    include("end_to_end.jl")
+    include("documentation.jl")
 end

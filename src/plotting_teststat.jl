@@ -135,8 +135,14 @@ on the testcase are shown by default. The title reports the two-sample KS
 statistic and p-value calculated from the unbinned values; disable this with
 `show_ks_test=false`. If a stored reference is available, the title separately
 reports a one-sample t-test of the sampler repetitions against it; disable this
-with `show_reference_test=false`. Returns the generated PDF paths. With
-`save_plots=false`, returns the unsaved plot objects instead.
+with `show_reference_test=false`.
+
+`nbins` controls the histogram resolution. With `same_bins=true`, both curves
+use common bin edges. Those edges are derived from the IID values unless
+`sampler_bins=true`. With `same_bins=false`, each curve gets its own bins.
+
+The function returns one generated PDF path per metric output. With
+`save_plots=false`, it returns the corresponding unsaved plot objects instead.
 """
 function plot_teststatistic(
     testcase::AbstractTestcase,

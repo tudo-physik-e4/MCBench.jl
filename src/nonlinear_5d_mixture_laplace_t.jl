@@ -1,7 +1,7 @@
-# Implementation of the Nonlinear 5D Mixture-Laplace-t target.
+# Nonlinear 5D Mixture-Laplace-t target
 #
-# The predefined easy and hard scenarios remain in `example_distributions.jl`
-# so users can compare their parameter choices without reading these mechanics.
+# The ready-to-use easy and hard configurations are listed in
+# `builtin_testcases.jl`.
 
 
 # ---------------------------------------------------------------------------
@@ -137,7 +137,7 @@ function Random.rand(
 
         # x3 adds a second curve, residual coupling to x2, and Student-t tails.
         mean3 = p.d3 * sin(p.γ3 * x1) + p.ρ3 * (x2 - mean2)
-        x3 = rand(rng, LocationScale(mean3, p.s3, TDist(p.ν3)))
+        x3 = rand(rng, mean3 + p.s3 * TDist(p.ν3))
 
         # The x4 scale grows quadratically with the magnitude of x1.
         scale4 = p.b4_base * (1 + p.η4 * (x1 / p.σ1)^2)
@@ -190,7 +190,7 @@ function _logpdf_nonlinear_mixture_laplace_t(
     log_density += logpdf(Laplace(mean2, p.b2), x2)
 
     mean3 = p.d3 * sin(p.γ3 * x1) + p.ρ3 * (x2 - mean2)
-    log_density += logpdf(LocationScale(mean3, p.s3, TDist(p.ν3)), x3)
+    log_density += logpdf(mean3 + p.s3 * TDist(p.ν3), x3)
 
     scale4 = p.b4_base * (1 + p.η4 * (x1 / p.σ1)^2)
     log_density += logpdf(Laplace(0.0, scale4), x4)

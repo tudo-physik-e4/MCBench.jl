@@ -513,7 +513,14 @@ function build_teststat_reshuffle(
 end
 
 
-"""Read persisted IID statistics for one testcase and metric."""
+"""
+    read_teststatistic(testcase, metric)
+    read_teststatistic(testcase, metric, sampler)
+
+Read persisted metric repetitions. The first form reads the IID baseline; the
+second reads results for `sampler`. The returned matrix has one row per metric
+output and one column per repetition.
+"""
 function read_teststatistic(testcase::AbstractTestcase, metric::TestMetric)
     parse_teststatistic(joinpath(
         "teststatistics",
@@ -521,7 +528,6 @@ function read_teststatistic(testcase::AbstractTestcase, metric::TestMetric)
     ))
 end
 
-"""Read persisted sampler statistics for one testcase and metric."""
 function read_teststatistic(
     testcase::AbstractTestcase,
     metric::TestMetric,
@@ -533,7 +539,13 @@ function read_teststatistic(
     ))
 end
 
-"""Read the conservative autocorrelation ESS recorded for each sampler repetition."""
+"""
+    read_effective_sample_sizes(testcase, sampler)
+
+Read the conservative autocorrelation-based ESS recorded for every sampler
+repetition in an ESS-matched benchmark. Returns a vector of integer sample
+counts.
+"""
 function read_effective_sample_sizes(
     testcase::AbstractTestcase,
     sampler::SamplingAlgorithm,
@@ -545,7 +557,12 @@ function read_effective_sample_sizes(
     Int.(values)
 end
 
-"""Read the fixed IID sample size selected by the ESS pilot runs."""
+"""
+    read_matched_iid_sample_size(testcase, sampler)
+
+Read the fixed IID batch size chosen by the ESS pilot runs for this testcase
+and sampler.
+"""
 function read_matched_iid_sample_size(
     testcase::AbstractTestcase,
     sampler::SamplingAlgorithm,

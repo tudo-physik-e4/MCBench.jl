@@ -37,7 +37,7 @@ include("metric_summary.jl")
 include("plotting_teststat.jl")
 include("batmh.jl")
 
-# Built-in benchmark definitions are retained for backward compatibility.
-include("../examples/example_distributions.jl")
+# Targets distributed with MCBench.
+include("builtin_testcases.jl")
 
 end # module MCBench

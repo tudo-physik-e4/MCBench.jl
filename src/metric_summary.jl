@@ -249,7 +249,13 @@ function metric_summary(
     "$heading\n$(_format_metric_summary_table(rows, comparison, digits, include_reference))"
 end
 
-"""Print [`metric_summary`](@ref) to `io` and return the generated string."""
+"""
+    print_metric_summary(testcase, metrics, sampler; io=stdout, kwargs...)
+
+Create a table with [`metric_summary`](@ref), print it to `io`, and return the
+same string. All remaining keywords, including `comparison`, `names`,
+`include_reference`, and `digits`, are forwarded to `metric_summary`.
+"""
 function print_metric_summary(
     testcase::AbstractTestcase,
     metrics::AbstractVector{<:TestMetric},

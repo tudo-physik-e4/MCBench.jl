@@ -191,10 +191,16 @@ end
 
 """
     sample(testcase::Testcases; n_steps=100_000)
-    sample(testcase::Testcases, n::Int)
+    sample(testcase::Testcases, n)
+    sample(testcase, sampler; n_steps=100_000, ...)
 
-Draw IID samples from a testcase and return a `DensitySampleVector` containing
-both values and their target log densities.
+Return samples as a BAT `DensitySampleVector`.
+
+Without a sampler, MCBench draws `n_steps` IID observations from the testcase
+target and stores their target log densities. With a sampler, sampling is
+delegated to that sampler; sampler-specific keywords such as `nchains` may
+also be accepted. For file- and DSV-backed samplers, `n_steps` is the requested
+number of observations to read or resample.
 """
 function sample(testcase::Testcases; n_steps::Int=100_000)
     n_steps > 0 || throw(ArgumentError("n_steps must be positive"))
