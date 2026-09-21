@@ -1,93 +1,54 @@
-"""
-    run_teststatistic(
-    t::AbstractTestcase, 
-    samples1::DensitySampleVector,
-    samples2::DensitySampleVector,
-    m::TwoSampleMetric,
-    s::SamplingAlgorithm;)
-
-    run_teststatistic(
-    t::AbstractTestcase, 
-    samples::DensitySampleVector,
-    m::TwoSampleMetric, s::AnySampler;)
-
-    run_teststatistic(
-    t::AbstractTestcase, 
-    samples::DensitySampleVector,
-    m::TwoSampleMetric, s::Int;)
-
-    run_teststatistic(
-    t::AbstractTestcase, m::TwoSampleMetric,
-    s::AnySampler; n_steps::Int=10^5)
-
-    run_teststatistic(
-    t::AbstractTestcase, m::TwoSampleMetric;
-    n_steps::Int=10^5)
-
-Functions to run a two-sample test statistic on a given testcase and metric.
-When the samples are provided, the function calculates the metric value using the samples.
-When the sampling algorithm is provided, the function samples using the algorithm and the IID samples and calculates the metric value.
-When no samples and sampling algorithm are provided, the function samples using the testcase and calculates the metric value.
-
-# Arguments
-- `t::AbstractTestcase`: The test case, is a subtype of `AbstractTestcase`.
-- `samples1::DensitySampleVector`: The first density sample vector.
-- `samples2::DensitySampleVector`: The second density sample vector.
-- `m::TwoSampleMetric`: The metric, is a subtype of `TwoSampleMetric`.
-- `s::SamplingAlgorithm`: The sampling algorithm used for calculations.
-- `n_steps::Int`: The number of steps to be generated.
-
-# Returns
-- `TwoSampleMetric`: The calculated metric value.
-
-"""
+"""Calculate a two-sample metric from two already prepared sample vectors."""
 function run_teststatistic(
-    t::TSM, 
-    samples1::DensitySampleVector,
-    samples2::DensitySampleVector,
-    m::TM,
-    s::SamplingAlgorithm;
-    ) where {TSM <: AbstractTestcase, TM <: TwoSampleMetric}
-    mval = calc_metric(t,samples1,samples2,m)
+    testcase::AbstractTestcase,
+    first::DensitySampleVector,
+    second::DensitySampleVector,
+    metric::TwoSampleMetric,
+    ::AnySampler,
+)
+    calc_metric(testcase, first, second, metric)
 end
 
+"""Compare provided samples with a newly drawn IID reference sample."""
 function run_teststatistic(
-    t::TSM, 
+    testcase::AbstractTestcase,
     samples::DensitySampleVector,
-    m::TM,
-    s::AS;
-    ) where {TSM <: AbstractTestcase, TM <: TwoSampleMetric, AS <: AnySampler}
-    iids1 = sample(t, n_steps=length(samples))
-    mval = calc_metric(t,iids1,samples,m)
+    metric::TwoSampleMetric,
+    ::AnySampler,
+)
+    iid_samples = sample(testcase; n_steps=length(samples))
+    calc_metric(testcase, iid_samples, samples, metric)
 end
 
-function run_teststatistic_two_sample_metric( #to avoid method ambiguity
-    t::TSM, 
+function run_teststatistic_two_sample_metric(
+    testcase::AbstractTestcase,
     samples::DensitySampleVector,
-    m::TM,
-    s::Int;
-    ) where {TSM <: AbstractTestcase, TM <: TwoSampleMetric}
-    iids1 = sample(t, n_steps=length(samples))
-    mval = calc_metric(t,iids1,samples,m)
+    metric::TwoSampleMetric,
+    ::Int,
+)
+    iid_samples = sample(testcase; n_steps=length(samples))
+    calc_metric(testcase, iid_samples, samples, metric)
 end
 
+"""Draw both IID and algorithm samples before calculating a two-sample metric."""
 function run_teststatistic(
-    t::TSM, 
-    m::TM,
-    s::AS;
-    n_steps::Int=10^5,
-    ) where {TSM <: AbstractTestcase, TM <: TwoSampleMetric, AS <: AnySampler}
-    iids1 = sample(t, n_steps=n_steps)
-    samples = sample(t,s, n_steps=n_steps)
-    mval = calc_metric(t,iids1,samples,m)
+    testcase::AbstractTestcase,
+    metric::TwoSampleMetric,
+    sampler::AnySampler;
+    n_steps::Int=100_000,
+)
+    iid_samples = sample(testcase; n_steps=n_steps)
+    sampler_samples = sample(testcase, sampler; n_steps=n_steps)
+    calc_metric(testcase, iid_samples, sampler_samples, metric)
 end
 
+"""Calculate the IID baseline distribution of a two-sample metric."""
 function run_teststatistic(
-    t::TSM, 
-    m::TM;
-    n_steps::Int=10^5
-    ) where {TSM <: AbstractTestcase, TM <: TwoSampleMetric}
-    iids1 = sample(t, n_steps=n_steps)
-    iids2 = sample(t, n_steps=n_steps)
-    mval = calc_metric(t,iids1,iids2,m)
+    testcase::AbstractTestcase,
+    metric::TwoSampleMetric;
+    n_steps::Int=100_000,
+)
+    first = sample(testcase; n_steps=n_steps)
+    second = sample(testcase; n_steps=n_steps)
+    calc_metric(testcase, first, second, metric)
 end

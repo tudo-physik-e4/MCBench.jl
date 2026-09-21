@@ -1,194 +1,374 @@
 """
     abstract type Target
 
-Targets are used to represent the target distributions of test cases.
-Make sure to define the `Base.rand`, `Base.length` and `Distributions.logpdf` methods for the target distribution.
-See the posterior database example for more details.
-"""
-
-"""
-    abstract type AbstractTestcase
-An abstract type for any test cases.
+Base type for custom target distributions used by MCBench. A concrete target
+must implement `rand(target, n)`, `length(target)`, and `logpdf(target, values)`.
 """
 abstract type Target end
+
+"""Base type for all MCBench testcases."""
 abstract type AbstractTestcase end
 
+const _EMPTY_REFERENCE_VALUES = NamedTuple()
+const _EMPTY_REFERENCE_DISTRIBUTIONS = NamedTuple()
+
 """
-    struct Testcases <: AbstractTestcase
+    AnalyticReferenceDistribution(observable, distribution;
+                                  info="Analytic observable",
+                                  goodness_of_fit=one_sample_ks_test,
+                                  test_name=nothing)
 
-A struct representing a test case to be used in the framework of MCBench.
-Testcases must consisit of a distribution or Target that is sampleable and a set of bounds.
+Describe an observation-level scalar `observable` and its analytically known
+univariate `distribution` under the testcase target. The observable receives
+one sample as a coordinate vector and must return one finite real number.
 
-# Fields
-- `f::D`: The distribution or Target of the test case.
-- `bounds::B`: The bounds of the test case.
-- `dim::N`: The dimension of the test case.
-- `info::A`: Additional information about the test case.
+`goodness_of_fit(values, distribution)` compares all transformed values with
+the analytic distribution and must return a named tuple containing finite
+`statistic` and `pvalue` fields. The default is an asymptotic one-sample KS
+test for continuous distributions. When an ESS-adjusted result is requested,
+a custom function must additionally support
+`goodness_of_fit(values, distribution, effective_sample_size)`. This keeps the
+same interface usable for discrete distributions, such as an exactly known
+Ising energy law, while leaving their appropriate correction to the custom
+test.
+"""
+struct AnalyticReferenceDistribution{O,D<:UnivariateDistribution,G}
+    observable::O
+    distribution::D
+    info::String
+    goodness_of_fit::G
+    test_name::String
+end
 
-# Constructors
-- `Testcases(; fields...)`: Creates a test case with the given fields.
-- `Testcases(f::D, bounds::B, dim::N, info::A)`: Creates a test case with the given distribution or target, bounds, dimension and additional information.
-- `Testcases(f::D, dim::N, info::A)`: Creates a test case with the given distribution or target, dimension and additional information. Bounds are set to `[-10..10]` for each dimension.
+function AnalyticReferenceDistribution(
+    observable,
+    distribution::UnivariateDistribution;
+    info="Analytic observable",
+    goodness_of_fit=one_sample_ks_test,
+    test_name=nothing,
+)
+    resolved_test_name = if isnothing(test_name)
+        goodness_of_fit === one_sample_ks_test ?
+            "One-sample KS" : "Goodness-of-fit test"
+    else
+        string(test_name)
+    end
+    AnalyticReferenceDistribution(
+        observable,
+        distribution,
+        string(info),
+        goodness_of_fit,
+        resolved_test_name,
+    )
+end
 
+function _validate_reference_distributions(references)
+    references isa NamedTuple || throw(ArgumentError(
+        "reference_distributions must be a NamedTuple",
+    ))
+    for (name, reference) in pairs(references)
+        reference isa AnalyticReferenceDistribution || throw(ArgumentError(
+            "reference distribution :$name must be an AnalyticReferenceDistribution",
+        ))
+    end
+    references
+end
+
+export AnalyticReferenceDistribution
+
+_is_reference_element(value) = value isa Real || ismissing(value)
+
+function _validate_reference_values(values)
+    values isa NamedTuple || throw(ArgumentError("reference_values must be a NamedTuple"))
+
+    for (name, value) in pairs(values)
+        valid = _is_reference_element(value) || value isa Function ||
+            (value isa AbstractVector && all(_is_reference_element, value))
+        valid || throw(ArgumentError(
+            "reference value :$name must be numeric, missing, a vector of numeric or missing values, or a function",
+        ))
+        value isa Function && continue
+        elements = value isa AbstractVector ? value : (value,)
+        all(element -> ismissing(element) || isfinite(element), elements) || throw(ArgumentError(
+            "reference value :$name must contain only finite numbers or missing",
+        ))
+    end
+
+    values
+end
+
+"""
+    Testcases(f, bounds, dim, info;
+              reference_values=(;), reference_distributions=(;))
+    Testcases(f, dim, info;
+              reference_values=(;), reference_distributions=(;))
+
+A sampleable target distribution together with its bounds, dimensionality, and
+display name. Optional `reference_values` attach known scalar population
+values to the testcase. Keys are metric type names, for example:
+
+```julia
+Testcases(
+    MvNormal(zeros(2), I(2)),
+    bounds,
+    2,
+    "Standard-Normal";
+    reference_values=(
+        marginal_mean=zeros(2),
+        marginal_variance=ones(2),
+    ),
+)
+```
+
+Scalars may be used when all dimensions share the same reference value. Use
+`missing` inside a vector when references are known for only some metric
+outputs. For a configurable metric, an entry may instead be a function that
+receives the metric and returns its matching scalar or vector.
+
+The separate `reference_distributions` keyword stores analytically known
+distributions of observation-level scalar transforms. See
+[`AnalyticReferenceDistribution`](@ref). These are intentionally not scalar
+metric reference values and do not require IID reference samples.
 """
 struct Testcases{
     D<:Union{Distribution,Target},
     B<:NamedTupleDist,
-    A<:Any,
+    A,
     N<:Int,
+    R<:NamedTuple,
+    RD<:NamedTuple,
 } <: AbstractTestcase
-    f::D          # Distribution
-    bounds::B     # Bounds as NamedTupleDist
-    dim::N        # Dimension
-    info::A       # Additional info
+    f::D
+    bounds::B
+    dim::N
+    info::A
+    reference_values::R
+    reference_distributions::RD
 end
+
+function Testcases(
+    f::D,
+    bounds::B,
+    dim::N,
+    info::A;
+    reference_values=_EMPTY_REFERENCE_VALUES,
+    reference_distributions=_EMPTY_REFERENCE_DISTRIBUTIONS,
+) where {D<:Union{Distribution,Target},B<:NamedTupleDist,A,N<:Int}
+    dim > 0 || throw(ArgumentError("testcase dimension must be positive"))
+    references = _validate_reference_values(reference_values)
+    distributions = _validate_reference_distributions(reference_distributions)
+    Testcases(f, bounds, dim, info, references, distributions)
+end
+
+function Testcases(
+    f::D,
+    dim::N,
+    info::A;
+    reference_values=_EMPTY_REFERENCE_VALUES,
+    reference_distributions=_EMPTY_REFERENCE_DISTRIBUTIONS,
+) where {D<:Union{Distribution,Target},A,N<:Int}
+    bounds = NamedTupleDist(x=fill(-10..10, dim))
+    Testcases(
+        f,
+        bounds,
+        dim,
+        info;
+        reference_values=reference_values,
+        reference_distributions=reference_distributions,
+    )
+end
+
 export Testcases
 
-# Constructor for test cases without bounds
-function Testcases(f::D, dim::N, info::A) where {D <: Union{Distribution,Target}, N <: Int, A <: Any}
-    bounds = NamedTupleDist(x = fill(-10..10, dim))
-    Testcases(f, bounds, dim, info)
-end
-
-# Indicate that the given type is a density
 @inline DensityInterface.DensityKind(::Testcases) = IsDensity()
 
-
-"""
-    sample(t::Testcases; n_steps=10^5)::DensitySampleVector
-    sample(t::Testcases, n::Int)::DensitySampleVector
-    sample(t::Testcases, s::IIDSamplingAlgorithm; n_steps=10^5)::DensitySampleVector
-
-IID sampling from the distribution of the test case `t` with `n_steps` or `n` samples.
-When integrating a custom sampling algorithm, the `sample` method should be overloaded for the new sampling algorithm type for `s`.
-Returns a density sample vector with the samples and the log densities.
-"""
-function sample(t::Testcases; n_steps=10^5)
-    s = rand(t.f, n_steps)  # Generate random samples from the distribution
-    lgd = logpdf(t.f, s)  # Compute the log densities of the samples
-    make_dsv(s, lgd)
-end
-
-function sample(t::Testcases, n::Int)
-    sample(t, n_steps=n)
-end
-
-function sample(t::Testcases, s::IIDSamplingAlgorithm; n_steps=10^5)
-    n = n_steps
-    s = rand(t.f, n)  # Generate random samples from the distribution
-    lgd = logpdf(t.f, s)  # Compute the log densities of the samples
-    if typeof(s) == Vector{Float64}
-        s = reshape(s, (1, length(s)))  # Reshape the samples if needed
+function _sample_logdensities(distribution, values)
+    if distribution isa UnivariateDistribution
+        return logpdf.(Ref(distribution), vec(values))
     end
-    DensitySampleVector([x = s[:, i] for i in 1:size(s, 2)], lgd)
+    logpdf(distribution, values)
 end
 
 """
+    sample(testcase::Testcases; n_steps=100_000)
+    sample(testcase::Testcases, n)
+    sample(testcase, sampler; n_steps=100_000, ...)
 
-    sample(t<:AbsatractTestcase, s<:AbstractFileBasedSampler; n_steps=10^5)::DensitySampleVector
+Return samples as a BAT `DensitySampleVector`.
 
-Sampling from the distribution of the test case `t` using a file-based sampler `s` with `n_steps` samples.
-The test case is not used in the sampling process, but it is used to calculate the log densities of the samples. 
-Returns a density sample vector with the samples and the log densities.
+Without a sampler, MCBench draws `n_steps` IID observations from the testcase
+target and stores their target log densities. With a sampler, sampling is
+delegated to that sampler; sampler-specific keywords such as `nchains` may
+also be accepted. For file- and DSV-backed samplers, `n_steps` is the requested
+number of observations to read or resample.
+"""
+function sample(testcase::Testcases; n_steps::Int=100_000)
+    n_steps > 0 || throw(ArgumentError("n_steps must be positive"))
+    values = rand(testcase.f, n_steps)
+    logdensities = _sample_logdensities(testcase.f, values)
+    make_dsv(values, logdensities)
+end
+
+sample(testcase::Testcases, n::Int) = sample(testcase; n_steps=n)
+
+function sample(
+    testcase::Testcases,
+    ::IIDSamplingAlgorithm;
+    n_steps::Int=100_000,
+)
+    sample(testcase; n_steps=n_steps)
+end
+
+function sample(
+    testcase::Testcases,
+    sampler::IIDSampler;
+    n_steps::Int=sampler.n_steps,
+)
+    sample(testcase; n_steps=n_steps)
+end
+
+# File-backed samplers own the sample generation. The testcase is passed only
+# so samplers can evaluate target log densities when possible.
+function sample(
+    testcase::AbstractTestcase,
+    sampler::AbstractFileBasedSampler;
+    n_steps::Int=10_000,
+)
+    sample(sampler; t=testcase, n_steps=n_steps)
+end
+
+function _file_sample_logdensities(testcase, values::AbstractMatrix)
+    if testcase isa Testcases
+        return _sample_logdensities(testcase.f, values)
+    end
+    ones(size(values, 2))
+end
+
+function sample(
+    sampler::FileBasedSampler;
+    t=nothing,
+    n_steps::Int=10_000,
+)
+    n_steps > 0 || throw(ArgumentError("n_steps must be positive"))
+    rows = [parse.(Float64, split(read_sample!(sampler), ",")) for _ in 1:n_steps]
+    values = hcat(rows...)
+    make_dsv(values, _file_sample_logdensities(t, values))
+end
+
+function sample(sampler::CsvBasedSampler, n::Int)
+    n > 0 || throw(ArgumentError("sample count must be positive"))
+    rows = Vector{Float64}[]
+    sizehint!(rows, n)
+
+    for _ in 1:n
+        fields = split(read_sample!(sampler), ",")
+        push!(rows, parse.(Float64, fields[sampler.mask]))
+    end
+
+    make_dsv(rows)
+end
+
+function sample(
+    sampler::CsvBasedSampler;
+    t=nothing,
+    n_steps::Int=10_000,
+)
+    n_steps > 0 || throw(ArgumentError("n_steps must be positive"))
+    rows = [
+        parse.(Float64, split(read_sample!(sampler), ",")[sampler.mask])
+        for _ in 1:n_steps
+    ]
+    values = hcat(rows...)
+    make_dsv(values, _file_sample_logdensities(t, values))
+end
+
+function sample(
+    sampler::DsvSampler;
+    t=nothing,
+    n_steps::Int=10_000,
+)
+    n_steps > 0 || throw(ArgumentError("n_steps must be positive"))
+    available = floor(Int, sampler.neff[sampler.current_dsv_index])
+    sample_count = min(n_steps, available)
+
+    if sample_count < n_steps
+        message = "Requested more samples than the available effective sample size; reducing the sample count"
+        @warn message requested=n_steps available=available
+    end
+
+    resample_dsv(sampler.dsvs[sampler.current_dsv_index], sample_count)
+end
 
 """
-function sample(t::AT, s::FBA; n_steps=10^4) where {AT <: AbstractTestcase, FBA <: AbstractFileBasedSampler}
-    sample(s,t=t,n_steps=n_steps)
-end
+    DsvTestcase(sampler, dim, info;
+                reference_values=(;), reference_distributions=(;))
+    DsvTestcase(sampler; n=0, info="DsvTestcase",
+                reference_values=(;), reference_distributions=(;))
 
-function sample(s::FileBasedSampler; t=0, n_steps=10^4)
-    samples = [parse.(Float64, split(read_sample!(s), ",")) for i in 1:n_steps]
-    samples = hcat(samples...)
-    lgd = isa(t,Testcases) ? logpdf(t.f, samples) : ones(size(samples,2))
-    if typeof(samples) == Vector{Float64} 
-        samples = reshape(samples, (1, length(samples)))  # Reshape the samples if needed
-    end
-    DensitySampleVector([x = samples[:, i] for i in 1:size(samples, 2)], lgd)
-end
-
-function sample(fbs::CsvBasedSampler, n::Int)
-    samples = Vector{Float64}[]
-    for i in 1:n
-        push!(samples, [parse(Float64,i) for i in split(read_sample!(fbs), ",")[fbs.mask]])
-    end
-    return make_dsv(samples)
-end
-
-function sample(s::CsvBasedSampler; t=0, n_steps=10^4)
-    samples = [parse.(Float64, split(read_sample!(s), ",")[s.mask]) for i in 1:n_steps]
-    samples = hcat(samples...)
-    lgd = isa(t,Testcases) ? logpdf(t.f, samples) : ones(size(samples,2))
-    if typeof(samples) == Vector{Float64} 
-        samples = reshape(samples, (1, length(samples)))  # Reshape the samples if needed
-    end
-    DensitySampleVector([x = samples[:, i] for i in 1:size(samples, 2)], lgd)
-end
-
-function sample(t::AT, s::CsvBasedSampler; n_steps=10^4) where {AT <: AbstractTestcase}
-    sample(s,t=t,n_steps=n_steps)
-end
-
-function sample(s::DsvSampler; t=0, n_steps=10^4)
-    if(n_steps > s.neff[s.current_dsv_index])
-        println("WARNING: Number of steps is greater than the number of effective samples. Resampling to the number of effective samples.")
-        n_steps = Int(floor(s.neff[s.current_dsv_index]))
-    end
-    resample_dsv(s.dsvs[s.current_dsv_index],n_steps)
-end
-
-
-"""
-    struct DsvTestcase <: AbstractTestcase
-
-A struct representing a test case based on DensitySampleVectors.
-This is meant to be used as IIDs when the samples are precalculated and stored in a file.
-In that case samples should be read from the file converted to a DensitySampleVector and used as the test case.
-
-# Fields
-- `sampler::DS`: The sampler that generates the samples.
-- `dim::N`: The dimension of the test case.
-- `info::A`: Additional information about the test case.
-
-# Constructors
-- `DsvTestcase(s::DS, n::Int, info::A)`: Creates a test case with the given sampler, dimension and additional information.
-- `DsvTestcase(s::DS, info::A)`: Creates a test case with the given sampler and additional information. The dimension is set to the dimension of the samples.
-
+A testcase backed by precomputed `DensitySampleVector` objects. When `n` is
+zero, the dimensionality is inferred from the first stored sample.
 """
 struct DsvTestcase{
     DS<:DsvSampler,
-    A<:Any,
+    A,
     N<:Int,
+    R<:NamedTuple,
+    RD<:NamedTuple,
 } <: AbstractTestcase
-    sampler::DS   # Sampler
-    dim::N        # Dimension
-    info::A       # Additional info
+    sampler::DS
+    dim::N
+    info::A
+    reference_values::R
+    reference_distributions::RD
 end
+
+function DsvTestcase(
+    sampler::DS,
+    dim::N,
+    info::A;
+    reference_values=_EMPTY_REFERENCE_VALUES,
+    reference_distributions=_EMPTY_REFERENCE_DISTRIBUTIONS,
+) where {DS<:DsvSampler,A,N<:Int}
+    dim > 0 || throw(ArgumentError("testcase dimension must be positive"))
+    references = _validate_reference_values(reference_values)
+    distributions = _validate_reference_distributions(reference_distributions)
+    DsvTestcase(sampler, dim, info, references, distributions)
+end
+
+function DsvTestcase(
+    sampler::DS;
+    n::Int=0,
+    info="DsvTestcase",
+    reference_values=_EMPTY_REFERENCE_VALUES,
+    reference_distributions=_EMPTY_REFERENCE_DISTRIBUTIONS,
+) where {DS<:DsvSampler}
+    inferred_dim = length(BAT.unshaped(sampler.dsvs[1].v[1]))
+    dim = iszero(n) ? inferred_dim : n
+    DsvTestcase(
+        sampler,
+        dim,
+        info;
+        reference_values=reference_values,
+        reference_distributions=reference_distributions,
+    )
+end
+
 export DsvTestcase
 
-function DsvTestcase(s::DS; n=0, info="DsvTestcase") where {DS <: DsvSampler}
-    n = length(s.dsvs[1].v[1])
-    DsvTestcase(s, n, info)
+sample(testcase::DsvTestcase, n::Int) = sample(testcase.sampler; t=testcase, n_steps=n)
+
+function sample(testcase::DsvTestcase; n_steps::Int=100_000)
+    sample(testcase.sampler; t=testcase, n_steps=n_steps)
 end
 
-
-"""
-
-    sample(t::DsvTestcase; n_steps=10^5)::DensitySampleVector
-    sample(t::DsvTestcase, s::SamplingAlgorithm; n_steps=10^5)::DensitySampleVector
-
-The `sample` methods using `DsvTestcase` using the same logic as for `Testcases` but using the precalculated samples no matter the sampler used. 
-
-"""
-function sample(t::DsvTestcase, n::Int)
-    sample(t.sampler, t=t, n_steps=n)
+# General algorithms cannot generate from a sample-backed target, so its own
+# DSV sampler remains the source of IID reference samples.
+function sample(
+    testcase::DsvTestcase,
+    ::SamplingAlgorithm;
+    n_steps::Int=100_000,
+)
+    sample(testcase; n_steps=n_steps)
 end
-function sample(t::DsvTestcase; n_steps=10^5)
-    sample(t.sampler, t=t, n_steps=n_steps)
-end
-function sample(t::DsvTestcase, s::SA; n_steps=10^5) where {SA <: SamplingAlgorithm}
-    sample(t.sampler, t=t, n_steps=n_steps)
-end
-function sample(t::DsvTestcase, s::FBA; n_steps=10^5) where {FBA <: FileBasedSampler}
-    sample(s, t=t, n_steps=n_steps)
-end
+
 export sample
