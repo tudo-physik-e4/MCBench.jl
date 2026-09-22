@@ -13,8 +13,8 @@ within-sample U-statistic estimates already computed inside `kernelsum`.
 """
 function get_nammd(s1::DensitySampleVector, s2::DensitySampleVector; g=0, N=0)
     s1, s2 = prepare_twosample_dsv(s1, s2, N=N)
-    x = Matrix{Float64}(hcat(unshaped.(s1).v...))
-    y = Matrix{Float64}(hcat(unshaped.(s2).v...))
+    x = _sample_value_matrix(s1)
+    y = _sample_value_matrix(s2)
     get_nammd(x, y, g=g)
 end
 
